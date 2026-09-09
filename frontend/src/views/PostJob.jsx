@@ -22,8 +22,53 @@ export default function PostJob({ onSwitchView }) {
     if (!requirements.trim()) return alert('Requirements list is required');
     setPosting(true);
 
-    const salaryString = salaryMin && salaryMax ? `₹${salaryMin} - ₹${salaryMax}` : '';
-    const jobDescription = salaryString ? `${description}\n\nSalary: ${salaryString}` : description;
+    const minVal = salaryMin.trim().replace(/^₹\s*/, '');
+    const maxVal = salaryMax.trim().replace(/^₹\s*/, '');
+    let rawSalary = '';
+    if (minVal && maxVal) {
+      rawSalary = minVal === maxVal ? `₹${minVal}` : `₹${minVal} - ₹${maxVal}`;
+    } else if (minVal || maxVal) {
+      rawSalary = `₹${minVal || maxVal}`;
+    }
+
+    // Role-specific unit label (Stipend for Internship, Salary per annum/LPA for Full Time, Compensation per month for Part Time)
+    let salaryLabel = 'Salary';
+    let unitSuffix = '';
+
+    if (type === 'Internship') {
+      salaryLabel = 'Stipend';
+      if (!rawSalary.toLowerCase().includes('month') && !rawSalary.toLowerCase().includes('/mo')) {
+        unitSuffix = ' / month';
+      }
+    } else if (type === 'Full Time') {
+      salaryLabel = 'Salary';
+      if (!rawSalary.toLowerCase().includes('lpa') && !rawSalary.toLowerCase().includes('yr') && !rawSalary.toLowerCase().includes('year')) {
+        const numMatch = rawSalary.match(/\d[\d,]*/);
+        if (numMatch) {
+          const rawNum = parseInt(numMatch[0].replace(/,/g, ''), 10);
+          if (rawNum >= 100000) {
+            const inLakhs = (rawNum / 100000).toFixed(rawNum % 100000 === 0 ? 0 : 1);
+            rawSalary = `₹${inLakhs} LPA (${rawNum.toLocaleString('en-IN')})`;
+          } else if (rawNum < 100) {
+            unitSuffix = ' LPA';
+          } else {
+            unitSuffix = ' / year';
+          }
+        } else {
+          unitSuffix = ' / year';
+        }
+      }
+    } else if (type === 'Part Time') {
+      salaryLabel = 'Compensation';
+      if (!rawSalary.toLowerCase().includes('month') && !rawSalary.toLowerCase().includes('year')) {
+        unitSuffix = ' / month';
+      }
+    } else {
+      salaryLabel = 'Salary / Stipend';
+    }
+
+    const salaryString = rawSalary ? `${rawSalary}${unitSuffix}` : '';
+    const jobDescription = salaryString ? `${description}\n\n${salaryLabel}: ${salaryString}` : description;
 
     try {
       const res = await apiFetch('/api/jobs', {
@@ -134,10 +179,24 @@ export default function PostJob({ onSwitchView }) {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Salary Range (Monthly / Optional)</label>
+            <label className="form-label">
+              {type === 'Internship' ? 'Monthly Stipend (Optional)' : type === 'Full Time' ? 'Annual Salary Range (LPA / Per Annum)' : 'Compensation Range (Per Month / Year)'}
+            </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <input type="text" className="form-input" placeholder="Min (e.g. ₹50,000)" value={salaryMin} onChange={e => setSalaryMin(e.target.value)} />
-              <input type="text" className="form-input" placeholder="Max (e.g. ₹1,20,000)" value={salaryMax} onChange={e => setSalaryMax(e.target.value)} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder={type === 'Internship' ? 'Min (e.g. ₹25,000 / mo)' : type === 'Full Time' ? 'Min (e.g. 12 LPA or ₹12,00,000)' : 'Min (e.g. ₹30,000)'}
+                value={salaryMin}
+                onChange={e => setSalaryMin(e.target.value)}
+              />
+              <input
+                type="text"
+                className="form-input"
+                placeholder={type === 'Internship' ? 'Max (e.g. ₹40,000 / mo)' : type === 'Full Time' ? 'Max (e.g. 18 LPA)' : 'Max (e.g. ₹60,000)'}
+                value={salaryMax}
+                onChange={e => setSalaryMax(e.target.value)}
+              />
             </div>
           </div>
 

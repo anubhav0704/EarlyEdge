@@ -6,6 +6,7 @@ export default function Profile() {
 
   // Profile forms
   const [profileName, setProfileName] = useState(user?.name || '');
+  const [profilePhone, setProfilePhone] = useState(user?.phoneNumber || '');
   const [profileUni, setProfileUni] = useState(user?.university || '');
   const [profileStream, setProfileStream] = useState(user?.stream || '');
   const [profileBranch, setProfileBranch] = useState(user?.branch || '');
@@ -33,6 +34,7 @@ export default function Profile() {
   useEffect(() => {
     if (user) {
       setProfileName(user.name || '');
+      setProfilePhone(user.phoneNumber || '');
       setProfileUni(user.university || '');
       setProfileStream(user.stream || '');
       setProfileBranch(user.branch || '');
@@ -82,6 +84,7 @@ export default function Profile() {
 
     const updateData = {
       name: profileName,
+      phoneNumber: profilePhone,
       photoURL: avatarPreview,
       university: user.role === 'student' ? profileUni : '',
       stream: user.role === 'student' ? profileStream : '',
@@ -266,6 +269,22 @@ export default function Profile() {
               </button>
             )}
           </div>
+          {profilePhone && (
+            <div style={{ marginTop: '0.8rem', fontSize: '0.9rem', color: 'var(--primary)', fontWeight: '500', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+              <i className="fa-solid fa-phone"></i> {profilePhone}
+            </div>
+          )}
+
+          {user?.role === 'student' && (
+            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+              <span className="badge" style={{ background: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)', padding: '0.4rem 0.9rem', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                🏆 National Rank: #{user?.rank || 1}
+              </span>
+              <span className="badge" style={{ background: 'rgba(249, 115, 22, 0.15)', color: 'var(--secondary)', border: '1px solid var(--secondary)', padding: '0.4rem 0.9rem', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                ⚡ TQ Score: {user?.tqScore || 500} Points
+              </span>
+            </div>
+          )}
           <input
             type="file"
             id="profile-photo-upload"
@@ -285,6 +304,11 @@ export default function Profile() {
           <div className="form-group">
             <label className="form-label">Registered Email</label>
             <input type="email" className="form-input" value={user.email} disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Phone Number</label>
+            <input type="tel" className="form-input" placeholder="+91 98765 43210" value={profilePhone} onChange={e => setProfilePhone(e.target.value)} />
           </div>
 
           {user.role === 'student' ? (
@@ -411,12 +435,12 @@ export default function Profile() {
             ) : (
               <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
                 {applications.map(app => {
-                  const isShortlisted = app.status === 'shortlisted';
+                  const isAccepted = app.status === 'accepted' || app.status === 'shortlisted';
                   const isRejected = app.status === 'rejected';
 
                   return (
                     <div key={app._id} className="history-item" style={{
-                      borderColor: isShortlisted ? 'var(--success)' : isRejected ? 'var(--error)' : 'var(--border)'
+                      borderColor: isAccepted ? 'var(--success)' : isRejected ? 'var(--error)' : 'var(--border)'
                     }}>
                       <div>
                         <div style={{ fontWeight: 'bold' }}>{app.jobTitle}</div>
@@ -425,11 +449,11 @@ export default function Profile() {
                         </div>
                       </div>
                       <span className="badge" style={{
-                        background: isShortlisted ? 'var(--success)' : isRejected ? 'var(--error)' : 'rgba(255,255,255,0.05)',
-                        color: isShortlisted || isRejected ? 'white' : 'var(--text-muted)',
+                        background: isAccepted ? 'var(--success)' : isRejected ? 'var(--error)' : 'rgba(255,255,255,0.05)',
+                        color: isAccepted || isRejected ? 'white' : 'var(--text-muted)',
                         fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '4px'
                       }}>
-                        {app.status.toUpperCase()}
+                        {isAccepted ? 'ACCEPTED' : app.status.toUpperCase()}
                       </span>
                     </div>
                   );

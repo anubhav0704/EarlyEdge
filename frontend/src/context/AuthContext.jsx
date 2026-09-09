@@ -89,6 +89,32 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Google Login / Signup handler
+  const loginWithGoogle = async (googleData) => {
+    try {
+      const response = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(googleData)
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem('token', data.token);
+        setToken(data.token);
+        setUser(data.user);
+        return { success: true, user: data.user };
+      } else {
+        return { success: false, message: data.message };
+      }
+    } catch (error) {
+      console.error('Google login error:', error);
+      return { success: false, message: 'Google authentication failed' };
+    }
+  };
+
   // Logout handler
   const logout = () => {
     localStorage.removeItem('token');
@@ -121,6 +147,38 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Auth update error:', error);
       return { success: false, message: 'Profile update failed' };
+    }
+  };
+
+  // Request password reset authorization token
+  const forgotPassword = async (email) => {
+    try {
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Forgot password request error:', error);
+      return { success: false, message: 'Server connection failed' };
+    }
+  };
+
+  // Confirm password reset with authorization code
+  const resetPassword = async (email, resetCode, newPassword) => {
+    try {
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, resetCode, newPassword })
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Reset password error:', error);
+      return { success: false, message: 'Server connection failed' };
     }
   };
 
@@ -159,7 +217,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, token, loading, login, signup, logout, updateProfile, apiFetch }}>
+    <AuthContext.Provider value={{ user, setUser, token, loading, login, signup, loginWithGoogle, logout, updateProfile, forgotPassword, resetPassword, apiFetch }}>
       {children}
     </AuthContext.Provider>
   );

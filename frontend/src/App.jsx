@@ -18,11 +18,17 @@ import AICareerCoach from './views/AICareerCoach.jsx';
 import Landing from './views/Landing.jsx';
 
 export default function App() {
-  const { user, loading, login, signup, logout } = useContext(AuthContext);
+  const { user, loading, login, signup, loginWithGoogle, logout, forgotPassword, resetPassword } = useContext(AuthContext);
   const [currentView, setCurrentView] = useState(sessionStorage.getItem('currentView') || 'feed');
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAuthPortal, setShowAuthPortal] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(localStorage.getItem('sidebarCollapsed') === 'true');
+
+  // Sync sidebar collapse preference
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', sidebarCollapsed);
+  }, [sidebarCollapsed]);
 
   // Authenticate state helpers
   const [isLoginView, setIsLoginView] = useState(true); // Login vs Signup toggle
@@ -34,10 +40,21 @@ export default function App() {
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPass, setRegPass] = useState('');
+  const [regPhone, setRegPhone] = useState('');
   const [regCompany, setRegCompany] = useState('');
   const [regUni, setRegUni] = useState('');
   const [regStream, setRegStream] = useState('');
   const [regBranch, setRegBranch] = useState('');
+
+  // Forgot / Reset Password states
+  const [isForgotView, setIsForgotView] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1); // 1: Request Code, 2: Reset Password
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetCodeInput, setResetCodeInput] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [resetStatus, setResetStatus] = useState({ type: null, message: '' });
+  const [demoCode, setDemoCode] = useState('');
 
   // Init themes
   useEffect(() => {
@@ -74,6 +91,7 @@ export default function App() {
       name: regName,
       email: regEmail,
       password: regPass,
+      phoneNumber: regPhone,
       role: authRole,
       company: authRole === 'recruiter' ? regCompany : '',
       university: authRole === 'student' ? regUni : '',
@@ -90,6 +108,77 @@ export default function App() {
       alert('Account created successfully!');
     } else {
       alert(`Sign up Failed: ${result.message}`);
+    }
+  };
+
+  const handleGoogleAuthSubmit = async () => {
+    const defaultEmail = authRole === 'student' ? 'alex.student@gmail.com' : 'hr@techcorp.com';
+    const googleEmail = prompt('Enter your Google Account email:', defaultEmail);
+    if (!googleEmail) return;
+
+    const result = await loginWithGoogle({
+      email: googleEmail,
+      name: googleEmail.split('@')[0].toUpperCase(),
+      role: authRole || 'student',
+      googleId: `google_${Date.now()}`,
+      phoneNumber: regPhone || ''
+    });
+
+    if (result.success) {
+      alert(`Successfully signed in with Google as ${googleEmail}!`);
+    } else {
+      alert(`Google Auth Failed: ${result.message}`);
+    }
+  };
+
+  const handleRequestResetCode = async (e) => {
+    e.preventDefault();
+    if (!forgotEmail) return setResetStatus({ type: 'error', message: 'Please enter your email address' });
+
+    setResetStatus({ type: null, message: '' });
+    const result = await forgotPassword(forgotEmail);
+    if (result.success) {
+      setForgotStep(2);
+      setDemoCode(result.resetCode || '');
+      setResetStatus({
+        type: 'success',
+        message: 'Authorization reset code generated!'
+      });
+    } else {
+      setResetStatus({ type: 'error', message: result.message || 'Failed to generate code' });
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e) => {
+    e.preventDefault();
+    if (!resetCodeInput || !newPass || !confirmPass) {
+      return setResetStatus({ type: 'error', message: 'Please complete all required fields' });
+    }
+
+    if (newPass !== confirmPass) {
+      return setResetStatus({ type: 'error', message: 'Passwords do not match' });
+    }
+
+    if (newPass.length < 6) {
+      return setResetStatus({ type: 'error', message: 'Password must be at least 6 characters long' });
+    }
+
+    setResetStatus({ type: null, message: '' });
+    const result = await resetPassword(forgotEmail, resetCodeInput, newPass);
+
+    if (result.success) {
+      alert('Password reset successful! You can now log in with your new password.');
+      setLoginEmail(forgotEmail);
+      setIsForgotView(false);
+      setIsLoginView(true);
+      setForgotStep(1);
+      setResetCodeInput('');
+      setNewPass('');
+      setConfirmPass('');
+      setDemoCode('');
+      setResetStatus({ type: null, message: '' });
+    } else {
+      setResetStatus({ type: 'error', message: result.message || 'Failed to reset password' });
     }
   };
 
@@ -139,23 +228,10 @@ export default function App() {
             setShowAuthPortal(false);
             setAuthRole(null);
             setIsLoginView(true);
+            setIsForgotView(false);
           }}
         >
-          <div style={{
-            height: '35px',
-            width: '35px',
-            background: 'var(--primary-glow)',
-            borderRadius: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: '1px solid var(--primary)'
-          }}>
-            <i className="fa-solid fa-graduation-cap" style={{ color: 'var(--primary)', fontSize: '1rem' }}></i>
-          </div>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 'bold', margin: 0, fontFamily: 'var(--font-brand)' }}>
-            EarlyEdge
-          </h2>
+          <img src={theme === 'light' ? '/logo-light.png' : '/logo-dark.png'} alt="EarlyEdge Logo" style={{ height: '42px', objectFit: 'contain' }} />
         </div>
 
         <div style={{ position: 'absolute', top: '2rem', right: '2rem' }}>
@@ -197,6 +273,106 @@ export default function App() {
               </span>
             </div>
           </div>
+        ) : isForgotView ? (
+          /* FORGOT / RESET PASSWORD FORM */
+          <div className="glass-card" style={{ maxWidth: '420px', width: '100%', borderTop: `4px solid ${authRole === 'student' ? 'var(--primary)' : 'var(--secondary)'}` }}>
+            <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Reset Password</h2>
+            <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              {forgotStep === 1
+                ? 'Enter your account email to receive a 6-digit authorization reset code.'
+                : 'Enter your 6-digit authorization reset code and new password.'}
+            </p>
+
+            {resetStatus.message && (
+              <div style={{
+                padding: '0.8rem', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.85rem',
+                background: resetStatus.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                border: `1px solid ${resetStatus.type === 'error' ? '#ef4444' : '#22c55e'}`,
+                color: resetStatus.type === 'error' ? '#f87171' : '#4ade80'
+              }}>
+                <i className={`fa-solid ${resetStatus.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`} style={{ marginRight: '0.5rem' }}></i>
+                {resetStatus.message}
+              </div>
+            )}
+
+            {forgotStep === 2 && demoCode && (
+              <div style={{
+                padding: '0.8rem', borderRadius: '6px', marginBottom: '1.2rem', fontSize: '0.85rem',
+                background: 'var(--primary-glow)', border: '1px solid var(--primary)', textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Authorized Reset Code:</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 'bold', letterSpacing: '3px', color: 'var(--primary)', margin: '0.2rem 0' }}>
+                  {demoCode}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Valid for 10 minutes</div>
+              </div>
+            )}
+
+            {forgotStep === 1 ? (
+              <form onSubmit={handleRequestResetCode}>
+                <div className="form-group">
+                  <label className="form-label">Registered Email</label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    placeholder={authRole === 'student' ? 'student@university.edu' : 'hr@company.com'}
+                    value={forgotEmail}
+                    onChange={e => setForgotEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <button className="btn btn-primary" type="submit" style={{ width: '100%', marginTop: '1rem', background: authRole === 'recruiter' ? 'var(--secondary)' : 'var(--primary)', color: authRole === 'recruiter' ? 'white' : 'black' }}>
+                  Get Authorization Code
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleResetPasswordSubmit}>
+                <div className="form-group">
+                  <label className="form-label">Authorization Reset Code</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="6-digit code (e.g. 123456)"
+                    value={resetCodeInput}
+                    onChange={e => setResetCodeInput(e.target.value)}
+                    maxLength={6}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">New Password</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    placeholder="••••••••"
+                    value={newPass}
+                    onChange={e => setNewPass(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Confirm New Password</label>
+                  <input
+                    type="password"
+                    className="form-input"
+                    placeholder="••••••••"
+                    value={confirmPass}
+                    onChange={e => setConfirmPass(e.target.value)}
+                    required
+                  />
+                </div>
+                <button className="btn btn-primary" type="submit" style={{ width: '100%', marginTop: '1rem', background: authRole === 'recruiter' ? 'var(--secondary)' : 'var(--primary)', color: authRole === 'recruiter' ? 'white' : 'black' }}>
+                  Confirm Reset Password
+                </button>
+              </form>
+            )}
+
+            <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.9rem' }}>
+              <span style={{ color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setIsForgotView(false); setResetStatus({ type: null, message: '' }); }}>
+                <i className="fa-solid fa-arrow-left"></i> Back to Log In
+              </span>
+            </div>
+          </div>
         ) : (
           /* REGISTRATION / LOGIN FORMS */
           <div className="glass-card" style={{ maxWidth: '400px', width: '100%', borderTop: `4px solid ${authRole === 'student' ? 'var(--primary)' : 'var(--secondary)'}` }}>
@@ -210,6 +386,11 @@ export default function App() {
                   <div className="form-group">
                     <label className="form-label">Full Name</label>
                     <input type="text" className="form-input" placeholder="John Doe" value={regName} onChange={e => setRegName(e.target.value)} required />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Phone Number</label>
+                    <input type="tel" className="form-input" placeholder="+91 98765 43210" value={regPhone} onChange={e => setRegPhone(e.target.value)} />
                   </div>
 
                   {authRole === 'student' ? (
@@ -244,14 +425,61 @@ export default function App() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Password</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Password</label>
+                  {isLoginView && (
+                    <span
+                      style={{ fontSize: '0.8rem', color: authRole === 'recruiter' ? 'var(--secondary)' : 'var(--primary)', cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => {
+                        setIsForgotView(true);
+                        setForgotStep(1);
+                        setForgotEmail(loginEmail);
+                        setResetStatus({ type: null, message: '' });
+                      }}
+                    >
+                      Forgot password?
+                    </span>
+                  )}
+                </div>
                 <input type="password" className="form-input" placeholder="••••••••" value={isLoginView ? loginPass : regPass} onChange={e => isLoginView ? setLoginPass(e.target.value) : setRegPass(e.target.value)} required />
               </div>
 
-              <button className="btn btn-primary" type="submit" style={{ width: '100%', marginTop: '1rem', background: authRole === 'recruiter' ? 'var(--secondary)' : 'var(--primary)', color: authRole === 'recruiter' ? 'white' : 'black' }}>
+              <button className="btn btn-primary" type="submit" style={{ width: '100%', marginTop: '1rem', background: authRole === 'recruiter' ? 'var(--secondary)' : 'var(--primary)', color: 'white' }}>
                 {isLoginView ? 'Log In' : 'Create Account'}
               </button>
             </form>
+
+            {/* GOOGLE SIGN IN BUTTON */}
+            <div style={{ margin: '1rem 0 0.5rem 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', margin: '0.8rem 0' }}>
+                <div style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></div>
+                <span style={{ padding: '0 0.6rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>OR</span>
+                <div style={{ flex: 1, borderBottom: '1px solid var(--border)' }}></div>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-glass"
+                onClick={handleGoogleAuthSubmit}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.6rem',
+                  padding: '0.65rem',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  color: 'var(--text-main)'
+                }}
+              >
+                <i className="fa-brands fa-google" style={{ color: '#EA4335', fontSize: '1rem' }}></i>
+                Continue with Google
+              </button>
+            </div>
 
             <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
               {isLoginView ? (
@@ -262,7 +490,7 @@ export default function App() {
             </div>
 
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setAuthRole(null); setIsLoginView(true); }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setAuthRole(null); setIsLoginView(true); setIsForgotView(false); }}>
                 <i className="fa-solid fa-arrow-left"></i> Switch Role
               </span>
             </div>
@@ -288,9 +516,12 @@ export default function App() {
         onLogout={logout}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+        theme={theme}
       />
 
-      <main className="main-content">
+      <main className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         {/* Main navigation header */}
         <header className="app-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -361,7 +592,7 @@ export default function App() {
         {currentView === 'profile' && <Profile />}
         {currentView === 'recruiter' && <PostJob onSwitchView={handleSwitchView} />}
         {currentView === 'analytics' && <RecruiterAnalytics onSwitchView={handleSwitchView} />}
-        {currentView === 'coach' && <AICareerCoach />}
+        {currentView === 'coach' && <AICareerCoach onSwitchView={handleSwitchView} />}
       </main>
     </div>
   );

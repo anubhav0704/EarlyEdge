@@ -5,86 +5,71 @@ import html2pdf from 'html2pdf.js';
 
 // Mappings of standard Interview questions (Exactly like legacy script.js!)
 const QUESTION_DATABASE = {
-  javascript: [
+  'SDE / Full Stack': [
+    "What is the Virtual DOM and how does React reconcile changes?",
+    "Explain the Component Lifecycle in React.",
     "What is the difference between 'let', 'const', and 'var'?",
     "Explain closures in JavaScript and give a practical example.",
     "What is the Event Loop in JavaScript and how does it handle concurrency?",
     "Explain the 'this' keyword behavior in different scopes.",
     "What are Promises and how do they differ from async/await?",
-    "How does prototypal inheritance work in JS?",
-    "What is event bubbling and capturing?",
-    "Explain the concept of hoisting."
-  ],
-  react: [
-    "What is the Virtual DOM and how does React reconcile changes?",
-    "Explain the Component Lifecycle in React.",
-    "What are React Hooks? Name commonly used ones and their use cases.",
-    "What is the difference between State and Props?",
-    "Explain the useEffect hook dependency array behavior.",
-    "What is Prop Drilling and how can you avoid it in larger applications?",
-    "What is the Context API in React?",
-    "Explain React.memo and useMemo performance optimizations."
-  ],
-  python: [
-    "What are Python decorators and how are they used?",
-    "Explain list comprehensions in Python.",
-    "What is the difference between a list and a tuple?",
-    "How is memory managed in Python?",
-    "What is the Global Interpreter Lock (GIL)?",
-    "Explain multiple inheritance and MRO in Python."
-  ],
-  nodejs: [
     "What is the difference between process.nextTick and setImmediate in Node?",
-    "Explain the Event Loop phases in Node.js.",
     "What is middleware in Express.js?",
-    "How does Node.js handle async concurrency behind the scenes?"
+    "Describe the MVC architectural pattern.",
+    "How do you horizontally and vertically scale a web application?"
   ],
-  machine_learning: [
+  'Cyber Security': [
+    "How does HTTPS establish secure connections?",
+    "What is CORS and how do you resolve CORS errors in Express?",
+    "What is a SQL injection and how do you prevent it?",
+    "Explain Cross-Site Scripting (XSS) and Cross-Site Request Forgery (CSRF).",
+    "How does symmetric encryption differ from asymmetric encryption?",
+    "What is a Web Application Firewall (WAF)?",
+    "Describe the principle of least privilege.",
+    "What is OAuth 2.0 and how does it work?",
+    "How do you handle a suspected ransomware attack on a company server?"
+  ],
+  'Cloud Engineering': [
+    "What are the service models in cloud computing (IaaS, PaaS, SaaS)?",
+    "Explain the concept of virtualization in cloud servers.",
+    "What is a container and how is it different from a VM?",
+    "What is Load Balancing and what algorithms are used?",
+    "Explain serverless computing and cold starts.",
+    "What is a Virtual Private Cloud (VPC) and how do subnets work?",
+    "Describe a highly available cloud architecture.",
+    "How does Infrastructure as Code like Terraform improve deployment?"
+  ],
+  'AI Engineering': [
     "What is the difference between supervised and unsupervised learning?",
     "Explain the bias-variance tradeoff in machine learning.",
     "What is overfitting and how do you prevent it?",
     "Explain the concept of regularization (L1 vs L2 lasso/ridge).",
     "How does a decision tree work?",
     "What is a confusion matrix and F1 score?",
-    "Explain Gradient Descent optimization."
+    "Explain Gradient Descent optimization.",
+    "What is a transformer model and how does self-attention work?",
+    "Explain Retrieval-Augmented Generation (RAG)."
   ],
-  data_science: [
+  'DevOps': [
+    "What is the difference between a process and a thread?",
+    "What is a container and how is it different from a VM?",
+    "How do you set up a CI/CD pipeline using GitHub Actions?",
+    "Explain the purpose of Kubernetes Pods and Services.",
+    "What is Infrastructure as Code (IaC)?",
+    "How do you monitor a microservices application?",
+    "Explain Blue-Green deployment vs Canary deployment.",
+    "What is the role of Docker in a DevOps pipeline?"
+  ],
+  'Data Science': [
     "What is the difference between data science and data analytics?",
     "How do you handle missing or skewed data in a dataset?",
     "Explain the Central Limit Theorem.",
     "What is a p-value and how is it used in hypothesis testing?",
     "Explain the difference between correlation and causation.",
-    "What is A/B testing and how do you set it up?"
-  ],
-  full_stack: [
-    "Describe the MVC architectural pattern.",
-    "What is the difference between SQL and NoSQL databases? When do you choose which?",
-    "How does HTTPS establish secure connections?",
-    "What is CORS and how do you resolve CORS errors in Express?",
-    "Explain REST vs GraphQL API designs.",
-    "How do you horizontally and vertically scale a web application?"
-  ],
-  cloud_computing: [
-    "What are the service models in cloud computing (IaaS, PaaS, SaaS)?",
-    "Explain the concept of virtualization in cloud servers.",
-    "What is a container and how is it different from a VM?",
-    "What is Load Balancing and what algorithms are used?",
-    "Explain serverless computing and cold starts."
-  ],
-  computer_science: [
-    "Explain Big O notation and calculate space/time complexity of binary search.",
-    "What is the difference between a stack and a queue? Name practical use cases.",
-    "How does a hash map resolve key collisions?",
-    "Explain the difference between a process and a thread.",
-    "What is a deadlock and what are the four Coffman conditions?",
-    "Explain TCP vs UDP protocols."
-  ],
-  system_design: [
-    "How would you design a highly scalable URL shortener like Bitly?",
-    "Design a distributed rate limiter.",
-    "How do you scale a database? Explain sharding and replication.",
-    "Explain Load Balancing and caching layers in system design.",
-    "What are Microservices? Explain their pros and cons."
+    "What is A/B testing and how do you set it up?",
+    "Explain list comprehensions in Python.",
+    "What is the Global Interpreter Lock (GIL)?",
+    "How do you optimize a complex SQL query for large datasets?"
   ]
 };
 
@@ -114,15 +99,36 @@ export default function AIInterview() {
   const [evaluationScores, setEvaluationScores] = useState({ technical: 6, communication: 6 });
   const [evaluationReportHTML, setEvaluationReportHTML] = useState('');
   
-  // Track unasked questions
+  // Track unasked questions and time
   const askedQuestionsRef = useRef([]);
   const chatHistoryRef = useRef([]);
   const isInterviewActiveRef = useRef(false);
+  const interviewStartTimeRef = useRef(null);
 
   // Sync refs to avoid speech stale closures
   useEffect(() => {
     chatHistoryRef.current = chatHistory;
   }, [chatHistory]);
+
+  const [timeLeft, setTimeLeft] = useState(15 * 60);
+
+  // Timer effect
+  useEffect(() => {
+    let timer;
+    if (interviewStarted && !interviewComplete) {
+      timer = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            handleEndInterview();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [interviewStarted, interviewComplete]);
 
   // Handle unmount cleanup to fully clear active speech synthesis and recognition loops
   useEffect(() => {
@@ -173,23 +179,12 @@ export default function AIInterview() {
     askedQuestionsRef.current = [];
     setChatHistory([]);
     setTranscriptLines([]);
+    interviewStartTimeRef.current = Date.now();
     
     if (topic) {
       setActiveTopic(topic);
       setTopicSelected(true);
-      
-      const formatTopic = topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-      const msg = `Starting ${formatTopic} technical interview. I will ask you a series of core technical questions. Let's begin.`;
-      
-      setTranscriptLines([{ speaker: 'Interviewer', text: msg }]);
-      
-      setTimeout(() => {
-        if (!isInterviewActiveRef.current) return;
-        speakAndListen(msg, (answer) => {
-          if (!isInterviewActiveRef.current) return;
-          handleProcessAnswer(msg, answer, 'technical');
-        });
-      }, 1000);
+      handleConversationalTurn(topic, "The interview is now starting. Start by asking for my introduction.");
     } else {
       // Custom interest capture view
       setTopicSelected(false);
@@ -213,19 +208,15 @@ export default function AIInterview() {
     
     // Extract keywords
     const lower = interestsText.toLowerCase();
-    let detectedStack = 'computer_science'; // default
+    let detectedStack = 'SDE / Full Stack'; // default
 
     const keywords = {
-      'javascript': ['javascript', 'js', 'frontend', 'web'],
-      'react': ['react', 'react.js', 'hooks', 'redux'],
-      'nodejs': ['node', 'node.js', 'backend', 'express'],
-      'python': ['python', 'py', 'django', 'flask'],
-      'machine_learning': ['machine learning', 'ml', 'ai', 'artificial intelligence', 'deep learning'],
-      'data_science': ['data science', 'data scientist', 'analytics', 'statistics', 'pandas'],
-      'full_stack': ['full stack', 'fullstack', 'mern', 'mean'],
-      'cloud_computing': ['cloud', 'aws', 'azure', 'gcp', 'devops', 'docker', 'kubernetes'],
-      'computer_science': ['computer science', 'cs', 'algorithms', 'data structures', 'general', 'software', 'coding', 'programming', 'intern', 'development', 'engineer'],
-      'system_design': ['system design', 'architecture', 'scalability', 'distributed systems']
+      'SDE / Full Stack': ['javascript', 'js', 'frontend', 'web', 'react', 'node', 'full stack', 'fullstack', 'mern', 'mean', 'sde', 'backend'],
+      'Cyber Security': ['security', 'cyber', 'penetration', 'vulnerability', 'cryptography', 'firewall', 'hack'],
+      'Cloud Engineering': ['cloud', 'aws', 'azure', 'gcp', 'terraform', 'vpc', 'scaling', 'infrastructure'],
+      'AI Engineering': ['machine learning', 'ml', 'ai', 'artificial intelligence', 'deep learning', 'neural', 'llm', 'rag', 'transformer'],
+      'DevOps': ['devops', 'docker', 'kubernetes', 'ci/cd', 'jenkins', 'pipeline', 'deployment'],
+      'Data Science': ['data science', 'data scientist', 'analytics', 'statistics', 'pandas', 'sql', 'wrangling', 'analysis']
     };
 
     for (const [tech, matchers] of Object.entries(keywords)) {
@@ -238,7 +229,7 @@ export default function AIInterview() {
     setActiveTopic(detectedStack);
     setTopicSelected(true);
 
-    const stackLabel = detectedStack.replace(/_/g, ' ').toUpperCase();
+    const stackLabel = detectedStack;
     const ackMsg = `Excellent! I see you are interested in ${stackLabel}. Let's begin the technical questions.`;
     
     setTranscriptLines(prev => [...prev, { speaker: 'Interviewer', text: ackMsg }]);
@@ -250,100 +241,86 @@ export default function AIInterview() {
     });
   };
 
-  // 3. Loops and fetches next questions
-  const askNextQuestion = (techStack) => {
+  // 3. Conversational AI State Machine
+  const handleConversationalTurn = async (techStack, userAnswer) => {
     if (!isInterviewActiveRef.current) return;
-    const historyCount = chatHistoryRef.current.length;
     
-    // Maximum questions standard is 6
-    if (historyCount >= 6) {
+    // Check if 15 minutes have passed
+    const elapsed = Date.now() - interviewStartTimeRef.current;
+    if (elapsed > 15 * 60 * 1000) {
       handleEndInterview();
       return;
     }
 
-    // Get unasked question
-    let questionText = '';
-    const pool = QUESTION_DATABASE[techStack] || QUESTION_DATABASE.computer_science;
-    const available = pool.filter(q => !askedQuestionsRef.current.includes(q));
-
-    if (available.length > 0) {
-      questionText = available[Math.floor(Math.random() * available.length)];
-    } else {
-      // fallback
-      questionText = BEHAVIORAL_QUESTIONS.find(q => !askedQuestionsRef.current.includes(q));
+    if (userAnswer && userAnswer !== "The interview is now starting. Start by asking for my introduction.") {
+      setTranscriptLines(prev => [...prev, { speaker: 'You', text: userAnswer }]);
     }
 
-    if (!questionText) {
+    setStatusMsg('Thinking...');
+    setCurrentStatusClass('thinking');
+
+    try {
+      // Build history payload for the LLM
+      const historyPayload = chatHistoryRef.current.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      if (userAnswer) {
+         historyPayload.push({ role: 'user', content: userAnswer });
+      }
+
+      const elapsedMinutes = Math.floor(elapsed / 60000);
+      const instruction = `You are an expert technical interviewer conducting a strict 15-minute interview for a ${techStack} role.
+Your goal is to assess the candidate through a natural, human-like conversation.
+Candidate Profile:
+- Name: ${user.name}
+- University: ${user.university || 'Not specified'}
+- Stream/Branch: ${user.stream || ''} ${user.branch || ''}
+The interview has been going on for ${elapsedMinutes} minutes. You MUST NOT conclude the interview yourself. Always ask follow-up questions to keep the conversation going. The system will forcefully end the interview when 15 minutes is reached.
+Interview flow:
+1. Start by greeting the candidate by their Name and asking for an introduction.
+2. Ask domain-specific questions (${techStack}) tailoring them to their University background if possible.
+3. Ask some core computer science and DSA basics.
+Be highly conversational. Acknowledge the candidate's answers naturally. Ask follow-up questions if their answer is incomplete.
+You must return a JSON response with two keys:
+- "speech": The exact text you want to say to the candidate.
+- "score": An integer from 1 to 10 evaluating their PREVIOUS answer (if applicable). Use 5 if it's the first question.`;
+
+      const response = await apiFetch('/api/ai/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          instruction,
+          history: historyPayload,
+          max_tokens: 150,
+          json_mode: true
+        })
+      });
+      const data = await response.json();
+      
+      let aiResponse = { speech: "I'm having trouble thinking, let's try that again.", score: 5 };
+      try {
+        let cleanedJSON = data.response.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+        aiResponse = JSON.parse(cleanedJSON);
+      } catch (e) {
+        console.error("JSON parse error, attempting extraction:", data.response);
+        // Fallback string extraction if JSON completely fails
+        aiResponse.speech = data.response.replace(/[{}"\\]/g, '').trim();
+      }
+      if (userAnswer) {
+         chatHistoryRef.current.push({ role: 'user', content: userAnswer, score: aiResponse.score || 5 });
+      }
+      chatHistoryRef.current.push({ role: 'assistant', content: aiResponse.speech });
+      
+      setTranscriptLines(prev => [...prev, { speaker: 'Interviewer', text: aiResponse.speech }]);
+
+      speakAndListen(aiResponse.speech, (answer) => {
+        if (!isInterviewActiveRef.current) return;
+        handleConversationalTurn(techStack, answer);
+      });
+    } catch (err) {
+      console.error('AI Generation Error:', err);
       handleEndInterview();
-      return;
-    }
-
-    askedQuestionsRef.current.push(questionText);
-    setTranscriptLines(prev => [...prev, { speaker: 'Interviewer', text: questionText }]);
-
-    speakAndListen(questionText, (answer) => {
-      if (!isInterviewActiveRef.current) return;
-      handleProcessAnswer(questionText, answer, 'technical');
-    });
-  };
-
-  // 4. Processes candidate verbal answer
-  const handleProcessAnswer = async (question, answer, type) => {
-    if (!isInterviewActiveRef.current) return;
-    setTranscriptLines(prev => [...prev, { speaker: 'You', text: answer }]);
-
-    // Evaluate verbal answer metrics (identical to legacy calculations)
-    const answerLower = answer.toLowerCase();
-    const wordCount = answer.split(' ').length;
-    let score = 5; // Base
-
-    if (wordCount > 30) score += 2;
-    else if (wordCount > 15) score += 1;
-
-    const technicalTerms = ['because', 'example', 'approach', 'solution', 'optimize', 'design', 'pattern'];
-    technicalTerms.forEach(term => {
-      if (answerLower.includes(term)) score += 0.5;
-    });
-
-    score = Math.min(10, Math.max(1, score));
-
-    // Save history item
-    const newChatHistory = [
-      ...chatHistoryRef.current,
-      { question, answer, score, type, timestamp: Date.now() }
-    ];
-    setChatHistory(newChatHistory);
-
-    // Decision tree: Follow-up trigger if score drops below 4
-    if (score < 4 && Math.random() > 0.5) {
-      const followUp = "Could you elaborate more on that point? I'd like to understand your thinking better.";
-      setTranscriptLines(prev => [...prev, { speaker: 'Interviewer', text: followUp }]);
-      speakAndListen(followUp, (elaboration) => {
-        if (!isInterviewActiveRef.current) return;
-        handleProcessAnswer(followUp, elaboration, 'followup');
-      });
-    } else {
-      // Normal flow: ask next question
-      const scoreResponses = {
-        high: ["Excellent answer, very thorough.", "Great explanation, very clear.", "Perfect, exactly what I was looking for."],
-        mid: ["Good answer, thanks for explaining.", "I understand your approach.", "Thanks for sharing that perspective."],
-        low: ["Okay, I see.", "Alright.", "Got it."]
-      };
-      
-      const responses = score >= 8 ? scoreResponses.high : score >= 6 ? scoreResponses.mid : scoreResponses.low;
-      const ack = responses[Math.floor(Math.random() * responses.length)];
-
-      setTranscriptLines(prev => [...prev, { speaker: 'Interviewer', text: ack }]);
-      
-      setStatusMsg('Speaking...');
-      setCurrentStatusClass('speaking');
-      speech.speak(ack, () => {
-        if (!isInterviewActiveRef.current) return;
-        setTimeout(() => {
-          if (!isInterviewActiveRef.current) return;
-          askNextQuestion(activeTopic);
-        }, 800);
-      });
     }
   };
 
@@ -374,13 +351,17 @@ export default function AIInterview() {
     // Calculations (words average and scores)
     let totalScore = 0;
     let totalWords = 0;
+    let count = 0;
     
     chatHistoryRef.current.forEach(item => {
-      totalScore += item.score;
-      totalWords += item.answer.split(' ').length;
+      if (item.role === 'user') {
+        totalScore += item.score || 5;
+        totalWords += (item.content || '').split(' ').length;
+        count++;
+      }
     });
 
-    const count = chatHistoryRef.current.length || 1;
+    count = count || 1;
     const avgScore = totalScore / count;
     const avgWords = totalWords / count;
 
@@ -389,65 +370,40 @@ export default function AIInterview() {
     
     setEvaluationScores({ technical, communication });
 
-    const techLabel = activeTopic.replace(/_/g, ' ').toUpperCase();
-    const strengths = [
-      "Demonstrates solid conceptual understandings",
-      "Clear problem-solving approach",
-      "Robust practical thinking",
-      "Fast learning adaptability"
-    ].sort(() => Math.random() - 0.5).slice(0, 3);
+    const techLabel = activeTopic;
 
-    const recs = {
-      react: ["Build complex SPA structures with context managers", "Learn React.memo performance optimizations", "Review react testing libraries"],
-      javascript: ["Master asynchronous promise logic", "Practice with ES6 prototype chains", "Solve functional algorithm challenges"],
-      nodejs: ["Build secure REST APIs with token authentications", "Review express middleware mappings", "Practice database operations"]
-    };
+    // Convert chat history array to a readable text transcript for the Agent
+    const transcriptText = chatHistoryRef.current.map(msg => 
+      `${msg.role.toUpperCase()}: ${msg.content}`
+    ).join("\n\n");
 
-    const techRecs = recs[activeTopic] || ["Build completed web products", "Practice scaling architectures", "Review clean coding conventions"];
+    let reportHTML = "<p>Analyzing your performance...</p>";
+    setQuizComplete(true);
 
-    const reportHTML = `
-      <div style="font-family: 'Outfit', sans-serif; color: #000; padding: 20px;">
-        <h2 style="color: #7c3aed; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 20px;">
-          Technical Interview Report: ${techLabel}
-        </h2>
-        
-        <div style="margin-bottom: 20px; font-size: 15px; line-height: 1.5;">
-          <p><strong>Candidate Name:</strong> ${user.name}</p>
-          <p><strong>Email Address:</strong> ${user.email}</p>
-          <p><strong>Assessment Path:</strong> Dynamic AI Voice Interview</p>
-          <p><strong>Focus Area:</strong> ${techLabel} Specialization</p>
-          <p><strong>Questions Evaluated:</strong> ${count}</p>
-        </div>
-
-        <div style="display: flex; gap: 20px; margin-bottom: 30px;">
-          <div style="flex: 1; border: 1px solid #7c3aed; padding: 15px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 2.5rem; font-weight: bold; color: #7c3aed;">${technical}/10</div>
-            <div style="font-size: 12px; color: #555; font-weight: bold; margin-top: 5px;">TECHNICAL CAPABILITY</div>
-          </div>
-          <div style="flex: 1; border: 1px solid #0891b2; padding: 15px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 2.5rem; font-weight: bold; color: #0891b2;">${communication}/10</div>
-            <div style="font-size: 12px; color: #555; font-weight: bold; margin-top: 5px;">VERBAL COMMUNICATION</div>
-          </div>
-        </div>
-
-        <h3 style="color: #333; margin-top: 25px;">Candidate Key Strengths:</h3>
-        <ul style="padding-left: 20px; line-height: 1.6;">
-          ${strengths.map(s => `<li>${s}</li>`).join('')}
-        </ul>
-
-        <h3 style="color: #333; margin-top: 25px;">Strategic Recommendations:</h3>
-        <ul style="padding-left: 20px; line-height: 1.6;">
-          ${techRecs.map(r => `<li>${r}</li>`).join('')}
-        </ul>
-
-        <p style="margin-top: 40px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 15px;">
-          EarlyEdge Assessment Engine • Evaluated on ${new Date().toLocaleString()}
-        </p>
-      </div>
-    `;
+    try {
+      setStatusMsg('Generating personalized report...');
+      const response = await apiFetch('/api/ai/report', {
+        method: 'POST',
+        body: JSON.stringify({
+          transcript: transcriptText,
+          techStack: techLabel,
+          candidateName: user.name,
+          candidateEmail: user.email
+        })
+      });
+      const data = await response.json();
+      
+      if (data.reportHTML) {
+        reportHTML = data.reportHTML;
+      } else {
+        reportHTML = `<p>Failed to parse dynamic report. Raw data: ${JSON.stringify(data)}</p>`;
+      }
+    } catch (err) {
+      console.error('AI Report Generation Error:', err);
+      reportHTML = `<p>There was an error connecting to the AI Agent to generate your report.</p>`;
+    }
 
     setEvaluationReportHTML(reportHTML);
-    setQuizComplete(true);
 
     // Save report REST POST database
     try {
@@ -510,61 +466,27 @@ export default function AIInterview() {
         </p>
 
         <div className="grid-cards">
-          {/* Full Stack */}
-          <div className="glass-card" style={{ borderTop: '3px solid #3b82f6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                <h4>Full Stack Developer</h4>
-                <i className="fa-solid fa-layer-group" style={{ color: '#3b82f6' }}></i>
+          {[
+            { name: 'SDE / Full Stack', icon: 'fa-code', color: '#14B8A6', desc: 'Vocal Q&A covering React, Node.js, System Architecture, and Web Microservices.' },
+            { name: 'Cyber Security', icon: 'fa-user-shield', color: '#F97316', desc: 'Vocal assessment evaluating Vulnerability Assessment, Cryptography, and Network Security.' },
+            { name: 'Cloud Engineering', icon: 'fa-cloud', color: '#3B82F6', desc: 'Evaluate cloud designs, AWS/GCP VPCs, Terraform IaC, and High Availability.' },
+            { name: 'AI Engineering', icon: 'fa-brain', color: '#A855F7', desc: 'Vocal testing on Machine Learning Pipelines, Neural Networks, PyTorch, and LLM RAG.' },
+            { name: 'DevOps', icon: 'fa-gears', color: '#10B981', desc: 'Evaluate Docker Multi-stage, Kubernetes Pods, CI/CD Actions, and Monitoring.' },
+            { name: 'Data Science', icon: 'fa-chart-pie', color: '#EC4899', desc: 'Vocal testing on Pandas Data Wrangling, Feature Scaling, Regression, and SQL.' }
+          ].map(dom => (
+            <div key={dom.name} className="glass-card" style={{ borderTop: `3px solid ${dom.color}`, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                  <h4>{dom.name}</h4>
+                  <i className={`fa-solid ${dom.icon}`} style={{ color: dom.color }}></i>
+                </div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{dom.desc}</p>
               </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Vocal Q&A covering REST vs GraphQL, CORS mappings, HTTPS protocols, and server scale architectures.</p>
+              <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: dom.color, borderColor: dom.color, color: 'white' }} onClick={() => handleStartInterview(dom.name)}>
+                Start Interview
+              </button>
             </div>
-            <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: '#3b82f6', color: 'white' }} onClick={() => handleStartInterview('full_stack')}>
-              Start Interview
-            </button>
-          </div>
-
-          {/* Machine Learning */}
-          <div className="glass-card" style={{ borderTop: '3px solid #8b5cf6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                <h4>Machine Learning</h4>
-                <i className="fa-solid fa-brain" style={{ color: '#8b5cf6' }}></i>
-              </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Vocal assessment evaluating ML bias/variance tradeoffs, decision trees, L1/L2 regularizations, and neural algorithms.</p>
-            </div>
-            <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: '#8b5cf6', color: 'white' }} onClick={() => handleStartInterview('machine_learning')}>
-              Start Interview
-            </button>
-          </div>
-
-          {/* Cloud Computing */}
-          <div className="glass-card" style={{ borderTop: '3px solid #f59e0b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                <h4>Cloud Computing</h4>
-                <i className="fa-solid fa-cloud" style={{ color: '#f59e0b' }}></i>
-              </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Evaluate cloud designs, container vs VM structures, serverless paradigms, and distributed balancers.</p>
-            </div>
-            <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: '#f59e0b', color: 'white' }} onClick={() => handleStartInterview('cloud_computing')}>
-              Start Interview
-            </button>
-          </div>
-
-          {/* CS Fundamentals */}
-          <div className="glass-card" style={{ borderTop: '3px solid #ec4899', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                <h4>CS Fundamentals</h4>
-                <i className="fa-solid fa-microchip" style={{ color: '#ec4899' }}></i>
-              </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Vocal testing on Big O notation complexities, hash maps collisions, deadlocks, and TCP/UDP sockets.</p>
-            </div>
-            <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: '#ec4899', color: 'white' }} onClick={() => handleStartInterview('computer_science')}>
-              Start Interview
-            </button>
-          </div>
+          ))}
 
           {/* Custom */}
           <div className="glass-card" style={{ borderTop: '3px solid #64748b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -624,14 +546,39 @@ export default function AIInterview() {
   // ============================================
   // RENDER DYNAMIC VOCAL AI ASSESSMENT CONSOLE
   // ============================================
+  // Calculate if exit is allowed (only after 12 mins = 720 secs elapsed, so timeLeft <= 180 secs)
+  const canExit = timeLeft <= 3 * 60;
+  
+  // Format timeLeft
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
   return (
     <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto', padding: '2.5rem', position: 'relative' }}>
-      <button onClick={handleExitInterview} style={{
-        position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'none', border: 'none',
-        color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.8rem', zIndex: 100
-      }}>
-        <i className="fa-solid fa-xmark"></i>
-      </button>
+      
+      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <div style={{
+          background: timeLeft <= 180 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(20, 184, 166, 0.2)',
+          color: timeLeft <= 180 ? '#ef4444' : '#14b8a6',
+          padding: '5px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '1.1rem',
+          border: `1px solid ${timeLeft <= 180 ? '#ef4444' : '#14b8a6'}`
+        }}>
+          <i className="fa-regular fa-clock" style={{ marginRight: '8px' }}></i>
+          {formatTime(timeLeft)}
+        </div>
+        
+        <button onClick={handleExitInterview} disabled={!canExit} title={canExit ? "End Interview" : "You must complete at least 12 minutes of the interview"} style={{
+          background: 'none', border: 'none',
+          color: canExit ? 'var(--text-muted)' : 'rgba(255,255,255,0.2)', 
+          cursor: canExit ? 'pointer' : 'not-allowed', 
+          fontSize: '1.8rem', zIndex: 100
+        }}>
+          <i className="fa-solid fa-xmark"></i>
+        </button>
+      </div>
 
       <h3 style={{ marginBottom: '1.5rem' }}>AI Technical Voice Interview</h3>
 

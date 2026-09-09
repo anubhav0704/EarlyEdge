@@ -131,6 +131,61 @@ router.post('/', protect, async (req, res) => {
   }
 });
 
+// @desc    Update an existing job posting
+// @route   PUT /api/jobs/:id
+// @access  Private (Owner recruiter only)
+router.put('/:id', protect, async (req, res) => {
+  const { title, company, location, type, requirementsText, description } = req.body;
+
+  try {
+    const job = await Job.findById(req.params.id);
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job post not found' });
+    }
+
+    if (job.recruiterId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Unauthorized. You did not post this job.' });
+    }
+
+    // Process requirements text into formatted HTML bullets if provided
+    if (requirementsText !== undefined) {
+      let formattedRequirements = '';
+      if (requirementsText && requirementsText.trim()) {
+        const requirementsList = requirementsText
+          .split('\n')
+          .map(line => {
+            line = line.trim();
+            line = line.replace(/^[•\-*\d.]+\s*/, '');
+            return line;
+          })
+          .filter(line => line.length > 0);
+
+        if (requirementsList.length > 0) {
+          formattedRequirements = requirementsList
+            .map(reqItem => `• ${reqItem}`)
+            .join('<br>');
+        }
+      }
+      job.requirements = formattedRequirements;
+      job.rawRequirements = requirementsText;
+    }
+
+    if (title) job.title = title.trim();
+    if (company !== undefined) job.company = company.trim() || req.user.company || 'Not Specified';
+    if (location !== undefined) job.location = location;
+    if (type !== undefined) job.type = type;
+    if (description !== undefined) job.description = description;
+
+    const updatedJob = await job.save();
+
+    res.json({ success: true, job: updatedJob, message: 'Job posting updated successfully' });
+  } catch (error) {
+    console.error('Update job error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // @desc    Delete a job posting & purge related applications
 // @route   DELETE /api/jobs/:id
 // @access  Private (Owner recruiter only)
@@ -265,9 +320,41 @@ router.get('/:id/applicants', protect, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Unauthorized to view these applicants' });
     }
 
-    const applicants = await Application.find({ jobId: req.params.id }).sort({ appliedAt: -1 });
-    res.json({ success: true, applicants });
+    const applications = await Application.find({ jobId: req.params.id }).sort({ appliedAt: -1 });
+
+    // Fetch user profiles for all applicants to supply complete details
+    const studentIds = applications.map(app => app.studentId);
+    const User = (await import('../models/User.js')).default;
+    const students = await User.find({ _id: { $in: studentIds } }).select('-password');
+    const studentMap = {};
+    students.forEach(s => {
+      studentMap[s._id.toString()] = s;
+    });
+
+    const richApplicants = applications.map(app => {
+      const student = studentMap[app.studentId.toString()] || {};
+      return {
+        _id: app._id,
+        jobId: app.jobId,
+        studentId: app.studentId,
+        studentName: app.studentName || student.name || 'Candidate',
+        studentEmail: app.studentEmail || student.email || 'N/A',
+        phoneNumber: student.phoneNumber || 'N/A',
+        university: student.university || 'Not Specified',
+        stream: student.stream || 'N/A',
+        branch: student.branch || 'N/A',
+        isVerified: student.isVerified || false,
+        squadId: student.squadId || 'None',
+        status: app.status || 'pending',
+        appliedAt: app.appliedAt,
+        hasResume: app.hasResume,
+        resumeFileName: app.resumeFileName || null
+      };
+    });
+
+    res.json({ success: true, applicants: richApplicants });
   } catch (error) {
+    console.error('Fetch applicants error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -278,7 +365,7 @@ router.get('/:id/applicants', protect, async (req, res) => {
 router.put('/applications/:id', protect, async (req, res) => {
   const { status } = req.body;
 
-  if (!['shortlisted', 'rejected'].includes(status)) {
+  if (!['shortlisted', 'accepted', 'rejected'].includes(status)) {
     return res.status(400).json({ success: false, message: 'Invalid shortlist status' });
   }
 

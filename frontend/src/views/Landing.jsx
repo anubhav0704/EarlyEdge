@@ -24,21 +24,7 @@ export default function Landing({ onEnterPortal, onToggleTheme, theme, isAuthent
             style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', cursor: 'pointer' }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
-            <div style={{
-              height: '40px',
-              width: '40px',
-              background: 'var(--primary-glow)',
-              borderRadius: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid var(--primary)'
-            }}>
-              <i className="fa-solid fa-graduation-cap" style={{ color: 'var(--primary)', fontSize: '1.2rem' }}></i>
-            </div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0, fontFamily: 'var(--font-brand)' }}>
-              EarlyEdge
-            </h2>
+            <img src={theme === 'light' ? '/logo-light.png' : '/logo-dark.png'} alt="EarlyEdge Logo" style={{ height: '42px', objectFit: 'contain' }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

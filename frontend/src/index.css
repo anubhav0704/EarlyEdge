@@ -1,43 +1,43 @@
 @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono&display=swap');
 
 :root {
-  /* CLASSIC TRADITIONAL THEME - DARK MODE */
-  --bg-dark: #141312;        /* Elegant dark warm charcoal background */
-  --bg-card: #1c1a18;        /* Soft warm dark slate card */
-  --bg-sidebar: #121110;     /* Cozy dark slate-brown sidebar */
-  --primary: #c99d63;        /* Traditional warm gold / brass accent */
-  --primary-glow: rgba(201, 157, 99, 0.08);
-  --secondary: #76a1b5;      /* Brighter high-contrast traditional slate blue */
-  --success: #588157;        /* Warm forest/moss green */
-  --error: #c95a5a;          /* Terracotta red */
-  --warning: #d4a373;        /* Warm amber */
-  --text-main: #f4efe6;      /* Off-white soft warm cream text - highly visible */
-  --text-muted: #c8c2b7;     /* Brightened warm grey text - extremely readable (WCAG compliant) */
-  --border: #3d3b37;         /* Clear structural border line */
+  /* EARLYEDGE LOW-POLY DIAMOND BRAND THEME - DARK MODE */
+  --bg-dark: #0F172A;        /* Rich deep slate navy background */
+  --bg-card: #1E293B;        /* Soft elevated slate card */
+  --bg-sidebar: #090D16;     /* Deep midnight navy sidebar */
+  --primary: #14B8A6;        /* Logo Vibrant Emerald Teal */
+  --primary-glow: rgba(20, 184, 166, 0.15);
+  --secondary: #F97316;      /* Logo Vibrant Orange Accent */
+  --success: #10B981;        /* Emerald green */
+  --error: #EF4444;          /* Crimson red */
+  --warning: #F59E0B;        /* Golden amber warning */
+  --text-main: #F8FAFC;      /* Crisp off-white text */
+  --text-muted: #94A3B8;     /* Readable slate grey muted text */
+  --border: #334155;         /* Structural border line */
   
   --font-brand: 'Lora', 'Georgia', 'Times New Roman', serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --text-btn-primary: #141312; /* Dark text on gold background */
-  --login-bg: linear-gradient(135deg, #141312 0%, #1c1a18 100%);
+  --text-btn-primary: #FFFFFF; /* White text on teal primary buttons */
+  --login-bg: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
 }
 
-/* CLASSIC TRADITIONAL THEME - LIGHT MODE */
+/* EARLYEDGE LOW-POLY DIAMOND BRAND THEME - LIGHT MODE */
 [data-theme="light"] {
-  --bg-dark: #faf6f0;        /* Beautiful warm off-white cream background */
-  --bg-card: #ffffff;        /* Pure white card container */
-  --bg-sidebar: #1c2e24;     /* Deep traditional forest green sidebar for stunning elegance */
-  --primary: #1b4332;        /* Rich forest green main brand color */
-  --primary-glow: rgba(27, 67, 50, 0.08);
-  --secondary: #7c2d12;      /* Rich saddle terracotta/rust - high-contrast */
-  --success: #2d5a27;        /* Deep leaf green */
-  --error: #a93c3c;          /* Deep crimson-rust red */
-  --warning: #b8860b;        /* Old gold / amber */
-  --text-main: #2b2520;      /* Dark charcoal / espresso text */
-  --text-muted: #4e4a46;     /* Darkened warm grey-brown - extremely readable (WCAG compliant) */
-  --border: #d8cebc;         /* Crisp gray-cream border line */
+  --bg-dark: #F8FAFC;        /* Clean cool slate-white background */
+  --bg-card: #FFFFFF;        /* Pure white card surface */
+  --bg-sidebar: #F1F5F9;     /* Soft light slate sidebar */
+  --primary: #0D9488;        /* Logo Rich Teal */
+  --primary-glow: rgba(13, 148, 136, 0.12);
+  --secondary: #EA580C;      /* Logo Vibrant Orange */
+  --success: #16A34A;        /* Forest green */
+  --error: #DC2626;          /* Crimson red */
+  --warning: #D97706;        /* Golden amber */
+  --text-main: #0F172A;      /* Midnight navy body text */
+  --text-muted: #64748B;     /* Slate grey readable text */
+  --border: #CBD5E1;         /* Structural border line */
   
-  --text-btn-primary: #ffffff; /* White text on deep green background */
-  --login-bg: linear-gradient(135deg, #faf6f0 0%, #e8e2d5 100%);
+  --text-btn-primary: #FFFFFF; /* White text on teal primary buttons */
+  --login-bg: linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%);
 }
 
 * {
@@ -96,7 +96,20 @@ h5 { font-size: 1.1rem; }
   height: 100vh;
   overflow-y: auto;
   z-index: 50;
-  transition: transform 0.3s ease, background 0.3s;
+  transition: width 0.3s ease, padding 0.3s ease, transform 0.3s ease, background 0.3s;
+}
+
+.sidebar.collapsed {
+  width: 80px;
+  padding: 1.5rem 0.6rem;
+}
+
+.sidebar.collapsed .nav-item {
+  padding: 0.9rem 0;
+}
+
+.sidebar.collapsed .nav-item i {
+  font-size: 1.25rem;
 }
 
 .sidebar-brand {
@@ -146,7 +159,12 @@ h5 { font-size: 1.1rem; }
   flex: 1;
   padding: 2.5rem;
   width: calc(100% - 280px);
-  transition: margin-left 0.3s ease;
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+
+.main-content.sidebar-collapsed {
+  margin-left: 80px;
+  width: calc(100% - 80px);
 }
 
 .app-header {

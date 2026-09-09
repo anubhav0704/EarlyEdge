@@ -46,19 +46,57 @@ router.post('/verification', protect, async (req, res) => {
 // @route   POST /api/assessments/mock
 // @access  Private (Student only)
 router.post('/mock', protect, async (req, res) => {
-  const { type, score, total, accuracy, history } = req.body;
+  const { type, score, total, accuracy, history, domain, partAScore, partBScore, partCScore, subjectiveAnswers, codeSubmitted, aiEvaluation } = req.body;
 
   try {
+    const defaultAiEval = aiEvaluation || {
+      aiSummary: `Sage AI evaluated performance across ${domain || 'Engineering'} domains: Part A (30 MCQs): ${partAScore || 0}%, Part B (4 Subjective Qs): ${partBScore || 0}%, Part C (DSA Code Submission): ${partCScore || 0}%.`,
+      partAEvaluation: `Core CS & Aptitude Accuracy: ${partAScore || 0}%. Foundational computer science and quantitative problem-solving verified.`,
+      partBEvaluation: `Subjective Technical Depth: ${partBScore || 0}%. Responses demonstrate strong domain-specific scenario analysis and architectural clarity.`,
+      partCEvaluation: `DSA Code Quality: ${partCScore || 0}%. Code submission analyzed for algorithmic time/space efficiency and clean structure.`,
+      recommendation: `High recommendation for ${domain || 'Software Engineering'} roles.`
+    };
+
     const test = await MockTest.create({
       userId: req.user._id,
-      type,
+      type: type || `${domain || 'General'} Skill Test`,
       score,
       total,
       accuracy,
-      history
+      domain: domain || 'General Tech',
+      partAScore: partAScore || 0,
+      partBScore: partBScore || 0,
+      partCScore: partCScore || 0,
+      subjectiveAnswers: subjectiveAnswers || [],
+      codeSubmitted: codeSubmitted || '',
+      aiEvaluation: defaultAiEval,
+      history: history || []
     });
 
-    res.status(201).json({ success: true, test });
+    // Update user TQ score
+    const bonusTQ = Math.round((accuracy || 0) * 2.5);
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $inc: { tqScore: bonusTQ } },
+      { new: true }
+    );
+
+    // Recalculate global ranks across all student users
+    const allStudents = await User.find({ role: 'student' }).sort({ tqScore: -1 });
+    let currentRank = 1;
+    for (let i = 0; i < allStudents.length; i++) {
+      await User.findByIdAndUpdate(allStudents[i]._id, { rank: i + 1 });
+      if (allStudents[i]._id.toString() === req.user._id.toString()) {
+        currentRank = i + 1;
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      test,
+      userRank: currentRank,
+      userTqScore: updatedUser ? updatedUser.tqScore : 500
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -6,12 +6,16 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import sanitize from 'mongo-sanitize';
 
 // Route Imports
 import authRoutes from './routes/auth.js';
 import jobRoutes from './routes/jobs.js';
 import squadRoutes from './routes/squads.js';
 import assessmentRoutes from './routes/assessments.js';
+import aiRoutes from './routes/ai.js';
 
 // Socket Import
 import { handleSquadSocket } from './sockets/squadSocket.js';
@@ -19,7 +23,18 @@ import { handleSquadSocket } from './sockets/squadSocket.js';
 // Setup environment configurations
 dotenv.config();
 
+// Ensure critical env variables are defined
+if (!process.env.JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable is not defined!');
+  process.exit(1);
+}
+
 const app = express();
+app.disable('x-powered-by'); // Hide Express signature header
+app.use(helmet({
+  contentSecurityPolicy: false // Allow FontAwesome/Google Font CDNs to load freely
+}));
+
 const server = http.createServer(app);
 
 // CORS config
@@ -33,11 +48,41 @@ app.use(cors({
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb', parameterLimit: 50000 }));
 
+// Global rate limiter: max 500 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  message: { success: false, message: 'Too many requests from this IP. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use(globalLimiter);
+
+// Strict authentication rate limiter: max 30 requests per 15 minutes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many authentication attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/signup', authLimiter);
+
+// Global middleware to sanitize incoming payloads against NoSQL injection
+app.use((req, res, next) => {
+  req.body = sanitize(req.body);
+  req.query = sanitize(req.query);
+  req.params = sanitize(req.params);
+  next();
+});
+
 // Setup API route endpoints
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/squads', squadRoutes);
 app.use('/api/assessments', assessmentRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Base route for server diagnostics
 app.get('/', (req, res) => {

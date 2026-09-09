@@ -22,6 +22,37 @@ const MockTestSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  domain: {
+    type: String,
+    default: 'General Tech'
+  },
+  partAScore: {
+    type: Number,
+    default: 0
+  },
+  partBScore: {
+    type: Number,
+    default: 0
+  },
+  partCScore: {
+    type: Number,
+    default: 0
+  },
+  subjectiveAnswers: [{
+    question: String,
+    answer: String
+  }],
+  codeSubmitted: {
+    type: String,
+    default: ''
+  },
+  aiEvaluation: {
+    aiSummary: String,
+    partAEvaluation: String,
+    partBEvaluation: String,
+    partCEvaluation: String,
+    recommendation: String
+  },
   history: [{
     question: String,
     category: String,

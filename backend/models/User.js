@@ -24,6 +24,15 @@ const UserSchema = new mongoose.Schema({
     enum: ['student', 'recruiter'],
     default: 'student'
   },
+  phoneNumber: {
+    type: String,
+    default: '',
+    unique: false
+  },
+  googleId: {
+    type: String,
+    default: ''
+  },
   company: {
     type: String,
     default: ''
@@ -44,12 +53,28 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  tqScore: {
+    type: Number,
+    default: 500
+  },
+  rank: {
+    type: Number,
+    default: 1
+  },
   squadId: {
     type: String,
     default: null
   },
   photoURL: {
     type: String,
+    default: null
+  },
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpires: {
+    type: Date,
     default: null
   },
   createdAt: {

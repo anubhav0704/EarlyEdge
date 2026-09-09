@@ -1,6 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import MockTest from '../models/MockTest.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -16,7 +17,7 @@ const generateToken = (id) => {
 // @route   POST /api/auth/signup
 // @access  Public
 router.post('/signup', async (req, res) => {
-  const { name, email, password, role, company, university, stream, branch } = req.body;
+  const { name, email, password, role, company, university, stream, branch, phoneNumber } = req.body;
 
   try {
     // Check if user already exists
@@ -31,6 +32,7 @@ router.post('/signup', async (req, res) => {
       email,
       password,
       role: role || 'student',
+      phoneNumber: phoneNumber || '',
       company: role === 'recruiter' ? company : '',
       university: role === 'student' ? university : '',
       stream: role === 'student' ? stream : '',
@@ -47,6 +49,7 @@ router.post('/signup', async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          phoneNumber: user.phoneNumber,
           company: user.company,
           university: user.university,
           stream: user.stream,
@@ -59,6 +62,64 @@ router.post('/signup', async (req, res) => {
     }
   } catch (error) {
     console.error('Signup error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Authenticate or Register via Google Auth
+// @route   POST /api/auth/google
+// @access  Public
+router.post('/google', async (req, res) => {
+  const { email, name, role, googleId, photoURL, phoneNumber } = req.body;
+
+  try {
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Google Auth requires valid email' });
+    }
+
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // User exists, update googleId / photoURL / phoneNumber if missing
+      if (!user.googleId) user.googleId = googleId || `google_${Date.now()}`;
+      if (photoURL && !user.photoURL) user.photoURL = photoURL;
+      if (phoneNumber && !user.phoneNumber) user.phoneNumber = phoneNumber;
+      await user.save();
+    } else {
+      // Create new user with Google Auth
+      const randomPassword = `GAuth_${Math.random().toString(36).slice(-8)}_${Date.now()}`;
+      user = await User.create({
+        name: name || email.split('@')[0],
+        email,
+        password: randomPassword,
+        role: role || 'student',
+        googleId: googleId || `google_${Date.now()}`,
+        photoURL: photoURL || '',
+        phoneNumber: phoneNumber || '',
+        isVerified: role === 'recruiter'
+      });
+    }
+
+    res.json({
+      success: true,
+      token: generateToken(user._id),
+      user: {
+        uid: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phoneNumber: user.phoneNumber,
+        company: user.company,
+        university: user.university,
+        stream: user.stream,
+        branch: user.branch,
+        isVerified: user.isVerified,
+        squadId: user.squadId,
+        photoURL: user.photoURL
+      }
+    });
+  } catch (error) {
+    console.error('Google Auth error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -111,12 +172,15 @@ router.get('/me', protect, async (req, res) => {
         uid: user._id,
         name: user.name,
         email: user.email,
+        phoneNumber: user.phoneNumber || '',
         role: user.role,
         company: user.company,
         university: user.university,
         stream: user.stream,
         branch: user.branch,
         isVerified: user.isVerified,
+        tqScore: user.tqScore || 500,
+        rank: user.rank || 1,
         squadId: user.squadId,
         photoURL: user.photoURL
       }
@@ -135,10 +199,11 @@ router.put('/profile', protect, async (req, res) => {
 
     if (user) {
       user.name = req.body.name || user.name;
-      user.university = req.body.university !== undefined ? req.body.university : user.university;
-      user.stream = req.body.stream !== undefined ? req.body.stream : user.stream;
-      user.branch = req.body.branch !== undefined ? req.body.branch : user.branch;
-      user.company = req.body.company !== undefined ? req.body.company : user.company;
+      user.phoneNumber = req.body.phoneNumber !== undefined ? req.body.phoneNumber : user.phoneNumber;
+      user.university = req.body.university || user.university;
+      user.stream = req.body.stream || user.stream;
+      user.branch = req.body.branch || user.branch;
+      user.company = req.body.company || user.company;
       user.photoURL = req.body.photoURL !== undefined ? req.body.photoURL : user.photoURL;
 
       if (req.body.isVerified !== undefined) {
@@ -154,11 +219,14 @@ router.put('/profile', protect, async (req, res) => {
           name: updatedUser.name,
           email: updatedUser.email,
           role: updatedUser.role,
+          phoneNumber: updatedUser.phoneNumber || '',
           company: updatedUser.company,
           university: updatedUser.university,
           stream: updatedUser.stream,
           branch: updatedUser.branch,
           isVerified: updatedUser.isVerified,
+          tqScore: updatedUser.tqScore || 500,
+          rank: updatedUser.rank || 1,
           squadId: updatedUser.squadId,
           photoURL: updatedUser.photoURL
         }
@@ -209,23 +277,106 @@ router.get('/student/:id', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Student profile not found' });
     }
 
+    const mockTests = await MockTest.find({ userId: student._id }).sort({ timestamp: -1 });
+
     res.json({
       success: true,
       user: {
         uid: student._id,
         name: student.name,
         email: student.email,
+        phoneNumber: student.phoneNumber || 'N/A',
         role: student.role,
         university: student.university,
         stream: student.stream,
         branch: student.branch,
         isVerified: student.isVerified,
+        tqScore: student.tqScore || 500,
+        rank: student.rank || 1,
         squadId: student.squadId,
         photoURL: student.photoURL,
-        createdAt: student.createdAt
+        createdAt: student.createdAt,
+        mockTests: mockTests
       }
     });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Request password reset authorization token
+// @route   POST /api/auth/forgot-password
+// @access  Public
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Please provide an email address' });
+  }
+
+  try {
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'No account found with this email address' });
+    }
+
+    // Generate 6-digit authorization reset code
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Set token and expiration (10 minutes)
+    user.resetPasswordToken = resetCode;
+    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Reset authorization code generated successfully',
+      resetCode: resetCode
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Reset password using authorization code
+// @route   POST /api/auth/reset-password
+// @access  Public
+router.post('/reset-password', async (req, res) => {
+  const { email, resetCode, newPassword } = req.body;
+
+  if (!email || !resetCode || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Please provide all required fields' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+  }
+
+  try {
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      resetPasswordToken: resetCode,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired reset authorization code' });
+    }
+
+    // Update password & clear reset token
+    user.password = newPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully! You can now log in with your new password.'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
