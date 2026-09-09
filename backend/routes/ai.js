@@ -28,7 +28,7 @@ router.post('/generate', protect, async (req, res) => {
         }
         
         const payload = {
-            model: 'openai/gpt-oss-20b',
+            model: 'llama3-8b-8192',
             messages: messages,
             max_tokens: max_tokens || 150,
             temperature: temperature || 0.7
@@ -108,7 +108,7 @@ Only output the raw HTML code. DO NOT output any conversational text like "Here 
         const response = await axios.post(
             'https://api.groq.com/openai/v1/chat/completions',
             {
-                model: 'openai/gpt-oss-20b',
+                model: 'llama3-8b-8192',
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: `Transcript:\n${transcript}` }
