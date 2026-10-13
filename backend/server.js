@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -38,12 +39,30 @@ app.use(helmet({
 
 const server = http.createServer(app);
 
-// CORS config
-const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
-app.use(cors({
-  origin: allowedOrigin,
+// CORS config - Support local dev, custom CLIENT_URL, and all Vercel domains
+const configuredOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(',').map(u => u.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // Allow non-browser requests (mobile, server-to-server, health checks)
+  if (configuredOrigins.includes('*') || configuredOrigins.includes(origin)) return true;
+  // Automatically allow any Vercel production or preview deployment (*.vercel.app)
+  if (origin.endsWith('.vercel.app')) return true;
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    }
+  },
   credentials: true
-}));
+};
+app.use(cors(corsOptions));
 
 // Middlewares - Increase json size limit to support Base64 resume uploads!
 app.use(express.json({ limit: '15mb' }));
@@ -86,19 +105,27 @@ app.use('/api/assessments', assessmentRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/practice', practiceRoutes);
 
-// Base route for server diagnostics
+// Base route for server diagnostics and Render health check
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: 'EarlyEdge MERN API running smoothly',
+    service: 'EarlyEdge API',
+    version: '1.0.0',
     timestamp: new Date()
   });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
 // Configure Socket.io server
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigin,
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) callback(null, true);
+      else callback(new Error(`Socket CORS blocked for origin: ${origin}`));
+    },
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -110,18 +137,21 @@ handleSquadSocket(io);
 // Expose Socket.io server instance context to express REST routes
 app.set('socketio', io);
 
-// Static frontend build asset serving (for production deployment context)
+// Static frontend build asset serving (fallback if deployed as a monolith)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/dist')));
+const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
+const indexHtmlPath = path.join(frontendDistPath, 'index.html');
+
+if (process.env.NODE_ENV === 'production' && fs.existsSync(indexHtmlPath)) {
+  app.use(express.static(frontendDistPath));
   app.get('*', (req, res) => {
-    res.sendFile(path.resolve(__dirname, '../frontend', 'dist', 'index.html'));
+    res.sendFile(indexHtmlPath);
   });
 }
 
-// Connect to MongoDB Database
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/earlyedge';
+// Connect to MongoDB Database (supports both MONGODB_URI and MONGO_URI)
+const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/earlyedge';
 console.log('⏳ Connecting to MongoDB...');
 
 mongoose.connect(MONGO_URI)
@@ -132,7 +162,7 @@ mongoose.connect(MONGO_URI)
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => {
       console.log(`🚀 EarlyEdge MERN Backend active on port ${PORT}`);
-      console.log(`📡 CORS policy allows access from origin: ${allowedOrigin}`);
+      console.log(`📡 Allowed client origins: ${configuredOrigins.join(', ')}`);
     });
   })
   .catch((error) => {

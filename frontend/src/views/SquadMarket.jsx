@@ -43,7 +43,7 @@ export default function SquadMarket() {
   // Configure Socket.io connections for real-time syncing
   useEffect(() => {
     // Connect to server
-    const serverUrl = window.location.origin === 'http://localhost:5173' ? 'http://localhost:5000' : window.location.origin;
+    const serverUrl = import.meta.env.VITE_API_URL || (window.location.origin === 'http://localhost:5173' ? 'http://localhost:5000' : window.location.origin);
     const socket = io(serverUrl, { withCredentials: true });
     socketRef.current = socket;
 

@@ -2,6 +2,15 @@ import React, { createContext, useState, useEffect } from 'react';
 
 export const AuthContext = createContext();
 
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+export const resolveApiUrl = (endpoint) => {
+  if (!endpoint) return endpoint;
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) return endpoint;
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return API_BASE ? `${API_BASE}${cleanPath}` : cleanPath;
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || null);
@@ -12,7 +21,7 @@ export const AuthProvider = ({ children }) => {
     const restoreSession = async () => {
       if (token) {
         try {
-          const response = await fetch('/api/auth/me', {
+          const response = await fetch(resolveApiUrl('/api/auth/me'), {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${token}`
@@ -40,7 +49,7 @@ export const AuthProvider = ({ children }) => {
   // Login handler
   const login = async (email, password) => {
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(resolveApiUrl('/api/auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -66,7 +75,7 @@ export const AuthProvider = ({ children }) => {
   // Signup handler
   const signup = async (signupData) => {
     try {
-      const response = await fetch('/api/auth/signup', {
+      const response = await fetch(resolveApiUrl('/api/auth/signup'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -92,7 +101,7 @@ export const AuthProvider = ({ children }) => {
   // Google Login / Signup handler
   const loginWithGoogle = async (googleData) => {
     try {
-      const response = await fetch('/api/auth/google', {
+      const response = await fetch(resolveApiUrl('/api/auth/google'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -128,7 +137,7 @@ export const AuthProvider = ({ children }) => {
     if (!token) return { success: false, message: 'Session expired' };
 
     try {
-      const response = await fetch('/api/auth/profile', {
+      const response = await fetch(resolveApiUrl('/api/auth/profile'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -153,7 +162,7 @@ export const AuthProvider = ({ children }) => {
   // Request password reset authorization token
   const forgotPassword = async (email) => {
     try {
-      const response = await fetch('/api/auth/forgot-password', {
+      const response = await fetch(resolveApiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
@@ -169,7 +178,7 @@ export const AuthProvider = ({ children }) => {
   // Confirm password reset with authorization code
   const resetPassword = async (email, resetCode, newPassword) => {
     try {
-      const response = await fetch('/api/auth/reset-password', {
+      const response = await fetch(resolveApiUrl('/api/auth/reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, resetCode, newPassword })
@@ -201,7 +210,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     try {
-      const response = await fetch(url, config);
+      const response = await fetch(resolveApiUrl(url), config);
       
       // Auto logout on token authentication failures
       if (response.status === 401) {
@@ -217,7 +226,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, token, loading, login, signup, loginWithGoogle, logout, updateProfile, forgotPassword, resetPassword, apiFetch }}>
+    <AuthContext.Provider value={{ user, setUser, token, loading, login, signup, loginWithGoogle, logout, updateProfile, forgotPassword, resetPassword, apiFetch, apiUrl: API_BASE }}>
       {children}
     </AuthContext.Provider>
   );
