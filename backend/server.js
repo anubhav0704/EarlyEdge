@@ -16,6 +16,7 @@ import jobRoutes from './routes/jobs.js';
 import squadRoutes from './routes/squads.js';
 import assessmentRoutes from './routes/assessments.js';
 import aiRoutes from './routes/ai.js';
+import practiceRoutes from './routes/practice.js';
 
 // Socket Import
 import { handleSquadSocket } from './sockets/squadSocket.js';
@@ -83,6 +84,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/squads', squadRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/practice', practiceRoutes);
 
 // Base route for server diagnostics
 app.get('/', (req, res) => {

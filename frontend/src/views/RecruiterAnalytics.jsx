@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
+import CandidateProfileModal from '../components/CandidateProfileModal.jsx';
 
 export default function RecruiterAnalytics({ onSwitchView }) {
   const { user, apiFetch } = useContext(AuthContext);
@@ -21,11 +22,11 @@ export default function RecruiterAnalytics({ onSwitchView }) {
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedJobApps, setSelectedJobApps] = useState([]);
 
-  // Student Profile detail view inside modal
+  // Candidate dossier modal states
   const [studentModalOpen, setStudentModalOpen] = useState(false);
-  const [studentProfile, setStudentProfile] = useState(null);
-  const [studentResume, setStudentResume] = useState(null);
-  const [loadingStudent, setLoadingStudent] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+  const [selectedAppId, setSelectedAppId] = useState(null);
+  const [selectedAppStatus, setSelectedAppStatus] = useState('pending');
 
   // Fetch all recruiter data
   const loadRecruiterData = async () => {
@@ -81,50 +82,12 @@ export default function RecruiterAnalytics({ onSwitchView }) {
     setJobModalOpen(true);
   };
 
-  // Open student profile preview
-  const handleOpenStudentProfile = async (studentId) => {
+  // Open student candidate profile dossier modal
+  const handleOpenStudentProfile = (studentId, appId = null, status = 'pending') => {
+    setSelectedStudentId(studentId);
+    setSelectedAppId(appId);
+    setSelectedAppStatus(status || 'pending');
     setStudentModalOpen(true);
-    setLoadingStudent(true);
-    setStudentProfile(null);
-    setStudentResume(null);
-
-    try {
-      const userRes = await apiFetch(`/api/auth/student/${studentId}`);
-      const userData = await userRes.json();
-      if (userData.success) {
-        setStudentProfile(userData.user);
-      }
-
-      const resumeRes = await apiFetch(`/api/assessments/resume/${studentId}`);
-      const resumeData = await resumeRes.json();
-      if (resumeData.success) {
-        setStudentResume(resumeData.resume);
-      }
-    } catch (err) {
-      console.log('Error opening profile');
-    }
-    setLoadingStudent(false);
-  };
-
-  // View PDF resume in new tab iframe
-  const handleViewResume = async (studentId, fileName) => {
-    try {
-      const res = await apiFetch(`/api/assessments/resume/${studentId}`);
-      const data = await res.json();
-      if (data.success && data.resume?.resumeData) {
-        const win = window.open();
-        if (win) {
-          win.document.write(
-            `<iframe src="${data.resume.resumeData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`
-          );
-          win.document.title = `Verified Resume - ${fileName || 'Candidate'}`;
-        }
-      } else {
-        alert('Resume not found or data missing.');
-      }
-    } catch (err) {
-      console.error(err);
-    }
   };
 
   return (
@@ -230,20 +193,65 @@ export default function RecruiterAnalytics({ onSwitchView }) {
             <h4 style={{ marginBottom: '1rem' }}><i className="fa-solid fa-users"></i> Applicant Profiles</h4>
 
             {/* APPLICANTS CHECKLIST */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '300px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '350px', overflowY: 'auto' }}>
               {selectedJobApps.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem' }}>No applications yet.</p>
               ) : (
                 selectedJobApps.map(app => (
-                  <div key={app._id} className="history-item">
-                    <div>
-                      <div style={{ fontWeight: 'bold' }}>{app.studentName}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                        {app.studentEmail} • {app.hasResume ? 'Resume PDF Loaded' : 'No Resume'}
+                  <div key={app._id} className="history-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', padding: '0.9rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: '0.98rem' }}>{app.studentName}</strong>
+                        {app.isVerified && (
+                          <span style={{ fontSize: '0.68rem', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #10b981', fontWeight: 600 }}>
+                            <i className="fa-solid fa-check-circle"></i> Verified
+                          </span>
+                        )}
+                        <span style={{
+                          fontSize: '0.68rem',
+                          padding: '0.1rem 0.4rem',
+                          borderRadius: '4px',
+                          textTransform: 'uppercase',
+                          fontWeight: 600,
+                          background: app.status === 'accepted' ? 'rgba(16,185,129,0.15)' : app.status === 'rejected' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                          color: app.status === 'accepted' ? '#10b981' : app.status === 'rejected' ? '#ef4444' : '#f59e0b'
+                        }}>
+                          {app.status || 'pending'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        {app.studentEmail} {app.university && app.university !== 'Not Specified' ? `• 🎓 ${app.university}` : ''}
+                      </div>
+
+                      {/* Performance Micro Chips */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.45rem' }}>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
+                          🏆 #{app.rank || 1}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
+                          ⚡ {app.tqScore || 500} TQ
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
+                          💻 {app.practiceStats?.totalSolved || 0} Solved
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
+                          🎯 {app.mockTestStats?.count || 0} Tests
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(14, 165, 233, 0.1)', color: '#0ea5e9', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
+                          🎙️ {app.interviewStats?.count || 0} Interviews
+                        </span>
+                        <span style={{ fontSize: '0.72rem', background: app.hasResume ? 'rgba(59, 130, 246, 0.1)' : 'rgba(100, 116, 139, 0.1)', color: app.hasResume ? 'var(--primary)' : 'var(--text-muted)', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                          📄 {app.hasResume ? 'Resume Attached' : 'No Resume'}
+                        </span>
                       </div>
                     </div>
-                    <button className="btn btn-sm btn-primary" onClick={() => handleOpenStudentProfile(app.studentId)}>
-                      <i className="fa-solid fa-eye"></i> View Profile
+
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => handleOpenStudentProfile(app.studentId, app._id, app.status)}
+                      style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    >
+                      <i className="fa-solid fa-id-card"></i> View Full Profile
                     </button>
                   </div>
                 ))
@@ -258,124 +266,24 @@ export default function RecruiterAnalytics({ onSwitchView }) {
       )}
 
       {/* ==================================================== */}
-      {/* 👤 STUDENT DETAIL PROFILE MODAL INSIDE ANALYTICS     */}
+      {/* 👤 RECRUITER COMPREHENSIVE CANDIDATE PROFILE MODAL    */}
       {/* ==================================================== */}
-      {studentModalOpen && (
-        <div className="modal-overlay" style={{ zIndex: 1100 }}>
-          <div className="modal-content" style={{ maxWidth: '500px', maxHeight: '85vh', overflowY: 'auto' }}>
-            <button onClick={() => setStudentModalOpen(false)} style={{
-              position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'none', border: 'none',
-              color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.5rem'
-            }}>
-              <i className="fa-solid fa-xmark"></i>
-            </button>
-
-            {loadingStudent ? (
-              <div style={{ textAlign: 'center', padding: '3rem' }}>
-                <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1.5rem' }}></i>
-              </div>
-            ) : !studentProfile ? (
-              <p style={{ textAlign: 'center' }}>Could not load student profile.</p>
-            ) : (
-              <div>
-                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                  <div style={{
-                    width: '80px', height: '80px', background: 'var(--primary)', color: 'white',
-                    fontSize: '2rem', fontWeight: 'bold', borderRadius: '50%', display: 'flex',
-                    alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem',
-                    boxShadow: '0 0 20px var(--primary-glow)', overflow: 'hidden'
-                  }}>
-                    {studentProfile.photoURL ? (
-                      <img src={studentProfile.photoURL} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      studentProfile.name.charAt(0).toUpperCase()
-                    )}
-                  </div>
-                  <h3 style={{ marginBottom: '0.25rem' }}>{studentProfile.name}</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{studentProfile.email}</p>
-                  {studentProfile.isVerified && (
-                    <span className="badge" style={{ background: 'var(--success)', color: 'white', marginTop: '0.5rem', padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderRadius: '4px', display: 'inline-block' }}>
-                      <i className="fa-solid fa-check-circle"></i> Verified Student
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <h4 style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-                    Profile Details
-                  </h4>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                    <div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Role</div>
-                      <div>Student / Talent</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Joined</div>
-                      <div>{new Date(studentProfile.createdAt).toLocaleDateString()}</div>
-                    </div>
-                  </div>
-
-                  {(studentProfile.university || studentProfile.stream || studentProfile.branch) && (
-                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.8rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                      <h5 style={{ marginBottom: '0.8rem', color: 'var(--primary)' }}>Education Details</h5>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                        {studentProfile.university && (
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>University / College</div>
-                            <div style={{ fontWeight: 500 }}>{studentProfile.university}</div>
-                          </div>
-                        )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                          {studentProfile.stream && (
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Stream</div>
-                              <div>{studentProfile.stream}</div>
-                            </div>
-                          )}
-                          {studentProfile.branch && (
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Branch</div>
-                              <div>{studentProfile.branch}</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <h4 style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '0.8rem' }}>Resume</h4>
-                  {studentResume ? (
-                    <div className="glass-card" style={{ padding: '1rem', borderLeft: '4px solid var(--primary)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>Resume Available</div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                            <i className="fa-solid fa-file-pdf"></i> {studentResume.fileName} ({Math.round(studentResume.fileSize / 1024)} KB)
-                          </div>
-                        </div>
-                        <button className="btn btn-sm btn-primary" onClick={() => handleViewResume(studentProfile.uid, studentResume.fileName)}>
-                          <i className="fa-solid fa-eye"></i> View
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                      <i className="fa-solid fa-file-circle-xmark" style={{ fontSize: '1.5rem', color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'block' }}></i>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No resume uploaded by candidate.</p>
-                    </div>
-                  )}
-                </div>
-
-                <button className="btn btn-glass" style={{ width: '100%', marginTop: '2rem' }} onClick={() => setStudentModalOpen(false)}>
-                  Close Profile
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {studentModalOpen && selectedStudentId && (
+        <CandidateProfileModal
+          studentId={selectedStudentId}
+          applicationId={selectedAppId}
+          currentStatus={selectedAppStatus}
+          jobTitle={selectedJob?.title || ''}
+          onClose={() => {
+            setStudentModalOpen(false);
+            setSelectedStudentId(null);
+          }}
+          onStatusChange={(appId, newStatus) => {
+            setSelectedAppStatus(newStatus);
+            setSelectedJobApps(prev => prev.map(a => a._id === appId ? { ...a, status: newStatus } : a));
+            setApplications(prev => prev.map(a => a._id === appId ? { ...a, status: newStatus } : a));
+          }}
+        />
       )}
 
     </div>

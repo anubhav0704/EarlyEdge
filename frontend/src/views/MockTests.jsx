@@ -1,5 +1,9 @@
-import React, { useContext, useState, useEffect, useRef } from 'react';
+import React, { useContext, useState, useEffect, useRef, useMemo } from 'react';
 import { AuthContext } from '../context/AuthContext.jsx';
+import CodeEditor from '../components/CodeEditor.jsx';
+import LeetCodeCompilerModal from '../components/LeetCodeCompilerModal.jsx';
+import { generateFullDsaQuestions } from '../data/practiceQuestionsPool.js';
+import { getThreeSampleTestCases } from '../data/dsaTestCases.js';
 
 // ==========================================
 // UTILITY: FISHER-YATES SHUFFLE ALGORITHM
@@ -459,9 +463,10 @@ function generateRandomTestSession(domainName) {
   let unseenApt = APTITUDE_POOL.filter(q => !seenApt.includes(q.id));
   if (unseenApt.length < 15) { seenApt = []; unseenApt = APTITUDE_POOL; }
 
-  // DSA: filter unseen, reset if all seen
-  let unseenDSA = SHARED_DSA_POOL.filter(p => !seenDSA.includes(p.id));
-  if (unseenDSA.length < 1) { seenDSA = []; unseenDSA = SHARED_DSA_POOL; }
+  // DSA: pull from the full 500+ question pool with proper stubs, drivers, and test cases
+  const FULL_DSA_POOL = generateFullDsaQuestions();
+  let unseenDSA = FULL_DSA_POOL.filter(p => !seenDSA.includes(p.id));
+  if (unseenDSA.length < 1) { seenDSA = []; unseenDSA = FULL_DSA_POOL; }
 
   const selectedCoreCS   = shuffleArray(unseenCore).slice(0, 15).map(shuffleOptions);
   const selectedAptitude = shuffleArray(unseenApt).slice(0, 15).map(shuffleOptions);
@@ -482,7 +487,78 @@ function generateRandomTestSession(domainName) {
   return { partAMCQs, partBSubjective, partCDSA: selectedDSA };
 }
 
-export default function MockTests() {
+// Helper: get problem-specific starter code stub for a given language
+function getProblemStarterCode(problem, lang) {
+  if (problem?.starterCode?.[lang]) return problem.starterCode[lang];
+  return MULTI_LANG_TEMPLATES[lang] || '';
+}
+
+// MULTI-LANGUAGE STARTER TEMPLATES (Python, C++, Java, JavaScript) - fallback generics
+const MULTI_LANG_TEMPLATES = {
+  python: `# Python 3.12 Solution
+import sys
+
+def solve(input_data):
+    # Implement your algorithmic solution
+    return input_data
+
+if __name__ == '__main__':
+    raw = sys.stdin.read().strip()
+    print(solve(raw))
+`,
+  cpp: `// C++ (g++ 20) Solution
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+
+using namespace std;
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+
+    string line;
+    if (getline(cin, line)) {
+        // Implement your solution
+        cout << line << endl;
+    } else {
+        cout << "Execution complete." << endl;
+    }
+    return 0;
+}
+`,
+  java: `// Java (OpenJDK 21) Solution
+import java.util.*;
+import java.io.*;
+
+public class Solution {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        if (sc.hasNextLine()) {
+            String line = sc.nextLine();
+            // Implement your solution
+            System.out.println(line);
+        } else {
+            System.out.println("Execution complete.");
+        }
+    }
+}
+`,
+  javascript: `// JavaScript (Node.js 20) Solution
+const fs = require('fs');
+
+function solve(input) {
+    // Implement your algorithmic solution
+    return input;
+}
+
+const stdin = fs.readFileSync(0, 'utf-8').trim();
+console.log(solve(stdin));
+`
+};
+
+export default function MockTests({ onSetAssessmentActive, onSwitchView, onExitAssessment }) {
 
   const { user, apiFetch } = useContext(AuthContext);
 
@@ -498,8 +574,47 @@ export default function MockTests() {
   const [partBAnswers, setPartBAnswers] = useState({}); // { 'sub-sde-1': 'User text answer...', ... }
   const [partCCode, setPartCCode] = useState('');
 
+  // Multi-Language Compiler state for Part C
+  const [compilerLanguage, setCompilerLanguage] = useState('python');
+  const [compilerCodeByLang, setCompilerCodeByLang] = useState({ ...MULTI_LANG_TEMPLATES });
+  const [customStdin, setCustomStdin] = useState('');
+  const [compilerOutput, setCompilerOutput] = useState(null);
+  const [isCompiling, setIsCompiling] = useState(false);
+  const [activeSampleCaseIndex, setActiveSampleCaseIndex] = useState(0);
+  const [copiedTestInput, setCopiedTestInput] = useState(false);
+  const [isDriverCodeOpen, setIsDriverCodeOpen] = useState(false);
+
+  // Standalone Playground Modal state
+  const [showSandboxModal, setShowSandboxModal] = useState(false);
+  const [sandboxLang, setSandboxLang] = useState('python');
+  const [sandboxCodeByLang, setSandboxCodeByLang] = useState({ ...MULTI_LANG_TEMPLATES });
+  const [sandboxCode, setSandboxCode] = useState(MULTI_LANG_TEMPLATES.python);
+  const [sandboxStdin, setSandboxStdin] = useState('5\n1 2 3 4 5');
+  const [sandboxOutput, setSandboxOutput] = useState(null);
+  const [isSandboxCompiling, setIsSandboxCompiling] = useState(false);
+
   // 45 Minute Global Timer State
   const [testTimeLeft, setTestTimeLeft] = useState(45 * 60);
+
+  // Verification quiz state
+  const [verificationActive, setVerificationActive] = useState(false);
+  const [verifQuestions, setVerifQuestions] = useState([]);
+  const [verifAnswers, setVerifAnswers] = useState({});
+  const [verifResult, setVerifResult] = useState(null);
+
+  // Sync active assessment status with parent for leave warning interceptor
+  const isAssessmentActive = Boolean((selectedDomain && currentPart !== 'results') || (verificationActive && !verifResult));
+  useEffect(() => {
+    if (onSetAssessmentActive) {
+      onSetAssessmentActive(isAssessmentActive);
+    }
+  }, [isAssessmentActive, onSetAssessmentActive]);
+
+  useEffect(() => {
+    return () => {
+      if (onSetAssessmentActive) onSetAssessmentActive(false);
+    };
+  }, []);
 
   // Timer Effect: auto-submit when reaches 0
   useEffect(() => {
@@ -520,10 +635,6 @@ export default function MockTests() {
   }, [selectedDomain, currentPart]);
 
   const submitTestAutomatically = () => {
-    // We must call the existing handleTestSubmit, but since it is defined later in the component,
-    // we can either call it directly if hoisted or trigger a state change.
-    // The easiest way is to set a flag or just call the function if it's accessible.
-    // To ensure it works cleanly without hoisting issues, we'll dispatch an event or call it directly.
     document.getElementById('hidden-submit-btn')?.click();
   };
 
@@ -535,27 +646,217 @@ export default function MockTests() {
   const [submitting, setSubmitting] = useState(false);
   const [finalScorecard, setFinalScorecard] = useState(null);
 
-  // Verification quiz state
-  const [verificationActive, setVerificationActive] = useState(false);
-  const [verifAnswers, setVerifAnswers] = useState({});
-  const [verifResult, setVerifResult] = useState(null);
+  // Real-time test generation states
+  const [generatingTest, setGeneratingTest] = useState(false);
+  const [generatingVerif, setGeneratingVerif] = useState(false);
 
-  // Reset & Randomize questions every time a domain is selected or restarted
-  const handleSelectDomain = (domainName) => {
-    const session = generateRandomTestSession(domainName);
+  // Derived: 3 sample test cases for Part C problem
+  const partCSampleTestCases = useMemo(() => {
+    const prob = activeSession?.partCDSA || null;
+    return getThreeSampleTestCases(prob);
+  }, [activeSession?.partCDSA?.id, activeSession?.partCDSA?.title]);
+
+  // Execute code via Groq multi-language sandbox compiler (with driver harness + normalized verdict)
+  const handleCompileAndRun = async () => {
+    if (!partCCode || !partCCode.trim()) {
+      alert('Please write code in the editor before compiling.');
+      return;
+    }
+    setIsCompiling(true);
+    setCompilerOutput(null);
+
+    const inputData = customStdin || partCSampleTestCases[activeSampleCaseIndex]?.input || activeSession?.partCDSA?.sampleInput || '';
+
+    // Build runnable code by appending driver harness (if available)
+    let runnableCode = partCCode;
+    const driver = activeSession?.partCDSA?.mainFunction?.[compilerLanguage];
+    if (driver) {
+      if (compilerLanguage === 'python' && !partCCode.includes('__main__')) {
+        runnableCode = `${partCCode}\n\n${driver}`;
+      } else if (compilerLanguage === 'cpp' && !partCCode.includes('main(')) {
+        runnableCode = `${partCCode}\n\n${driver}`;
+      } else if (compilerLanguage === 'java' && !partCCode.includes('public static void main')) {
+        if (partCCode.includes('public class') && partCCode.trim().endsWith('}')) {
+          const lastBrace = partCCode.lastIndexOf('}');
+          runnableCode = `${partCCode.substring(0, lastBrace)}\n    ${driver}\n}`;
+        } else {
+          runnableCode = `${partCCode}\n\n${driver}`;
+        }
+      } else if (compilerLanguage === 'javascript' && !partCCode.includes('console.log(')) {
+        runnableCode = `${partCCode}\n\n${driver}`;
+      }
+    }
+
+    const startTime = performance.now();
+    try {
+      const res = await apiFetch('/api/ai/compile-run', {
+        method: 'POST',
+        body: JSON.stringify({
+          language: compilerLanguage,
+          code: runnableCode,
+          stdin: inputData
+        })
+      });
+      const data = await res.json();
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+
+      // Normalize and compare with expected
+      let isMatch = false;
+      const matchingCase = partCSampleTestCases.find(tc => tc.input?.trim() === inputData?.trim()) || partCSampleTestCases[activeSampleCaseIndex];
+      const expectedOut = matchingCase?.expected?.trim();
+      const actualOut = data.stdout?.trim();
+      if (expectedOut && actualOut) {
+        const norm = s => s.replace(/\r\n/g, '\n').replace(/["']/g, '').replace(/\s+/g, ' ').replace(/\[\s+/g, '[').replace(/\s+\]/g, ']').trim().toLowerCase();
+        if (expectedOut === actualOut || norm(expectedOut) === norm(actualOut) || norm(actualOut).includes(norm(expectedOut)) || data.status === 'Accepted') {
+          isMatch = true;
+        }
+      } else if (data.status === 'Accepted') {
+        isMatch = true;
+      }
+
+      setCompilerOutput({
+        ...data,
+        isMatch,
+        expectedOutput: expectedOut,
+        executionTime: data.executionTime || `${elapsed}s`,
+        memory: data.memory || '2.1 MB'
+      });
+    } catch (err) {
+      console.error('Compiler run failed:', err);
+      setCompilerOutput({
+        status: 'Error',
+        stdout: '',
+        stderr: 'Compiler connection error: ' + err.message,
+        executionTime: '0.00s'
+      });
+    }
+    setIsCompiling(false);
+  };
+
+  const handleSandboxCompile = async () => {
+    if (!sandboxCode || !sandboxCode.trim()) return;
+    setIsSandboxCompiling(true);
+    setSandboxOutput(null);
+
+    try {
+      const res = await apiFetch('/api/ai/compile-run', {
+        method: 'POST',
+        body: JSON.stringify({
+          language: sandboxLang,
+          code: sandboxCode,
+          stdin: sandboxStdin
+        })
+      });
+      const data = await res.json();
+      setSandboxOutput(data);
+    } catch (err) {
+      setSandboxOutput({
+        status: 'Error',
+        stdout: '',
+        stderr: err.message,
+        executionTime: '0.00s'
+      });
+    }
+    setIsSandboxCompiling(false);
+  };
+
+  // Switch Sandbox Language & restore cached or template code
+  const handleSwitchSandboxLang = (newLang) => {
+    if (newLang === sandboxLang) return;
+    setSandboxCodeByLang(prev => {
+      const updated = { ...prev, [sandboxLang]: sandboxCode };
+      const nextCode = updated[newLang] || MULTI_LANG_TEMPLATES[newLang] || '';
+      setSandboxCode(nextCode);
+      return updated;
+    });
+    setSandboxLang(newLang);
+    setSandboxOutput(null);
+  };
+
+  // Switch Assessment Part C Language & restore cached or problem-specific stub
+  const handleSwitchCompilerLang = (newLang) => {
+    if (newLang === compilerLanguage) return;
+    const partCDSA = activeSession?.partCDSA || null;
+    setCompilerCodeByLang(prev => {
+      const updated = { ...prev, [compilerLanguage]: partCCode };
+      const nextCode = updated[newLang] || getProblemStarterCode(partCDSA, newLang);
+      setPartCCode(nextCode);
+      return updated;
+    });
+    setCompilerLanguage(newLang);
+    setCompilerOutput(null);
+  };
+
+  // Generate real-time assessment questions from Groq AI API on demand
+  const handleSelectDomain = async (domainName) => {
     setSelectedDomain(domainName);
-    setActiveSession(session);
+    setGeneratingTest(true);
     setCurrentPart('A');   // Always start at Part A
     setPartAAnswers({});
     setPartBAnswers({});
-    setPartCCode(session.partCDSA?.starterCode || '// Write your solution here...\n');
     setTestCaseResults([]);
     setFinalScorecard(null); // Clear any previous scorecard
+    setCompilerOutput(null);
+
+    try {
+      const res = await apiFetch('/api/ai/generate-test', {
+        method: 'POST',
+        body: JSON.stringify({ domain: domainName, count: 10 })
+      });
+      const data = await res.json();
+      if (data.success && data.test) {
+        // Try to find this problem in the full DSA pool for proper stubs/drivers
+        const fullDSAPool = generateFullDsaQuestions();
+        const aiTitle = (data.test.partC?.title || '').toLowerCase().trim();
+        const matchedProblem = fullDSAPool.find(p => p.title.toLowerCase().trim() === aiTitle);
+        const partCProb = matchedProblem || {
+          id: `ai-${Date.now()}`,
+          title: data.test.partC?.title || `${domainName} Coding Challenge`,
+          difficulty: data.test.partC?.difficulty || 'Medium',
+          description: data.test.partC?.description || 'Implement the algorithmic solution below.',
+          constraints: data.test.partC?.constraints || '',
+          sampleInput: data.test.partC?.sampleInput || '1',
+          sampleOutput: data.test.partC?.sampleOutput || 'result',
+          starterCode: MULTI_LANG_TEMPLATES,
+          testCases: [
+            { id: 1, input: data.test.partC?.sampleInput || 'default', expected: data.test.partC?.sampleOutput || 'result' }
+          ]
+        };
+        const aiSession = {
+          domain: domainName,
+          partAMCQs: (data.test.partA || []).map(q => shuffleOptions(q)),
+          partBSubjective: data.test.partB || [],
+          partCDSA: partCProb
+        };
+        setActiveSession(aiSession);
+        setActiveSampleCaseIndex(0);
+        const initCode = getProblemStarterCode(partCProb, compilerLanguage);
+        setPartCCode(initCode);
+        setCompilerCodeByLang({ python: getProblemStarterCode(partCProb, 'python'), cpp: getProblemStarterCode(partCProb, 'cpp'), java: getProblemStarterCode(partCProb, 'java'), javascript: getProblemStarterCode(partCProb, 'javascript') });
+      } else {
+        const fallbackSession = generateRandomTestSession(domainName);
+        setActiveSession(fallbackSession);
+        setActiveSampleCaseIndex(0);
+        const initCode = getProblemStarterCode(fallbackSession.partCDSA, compilerLanguage);
+        setPartCCode(initCode);
+        setCompilerCodeByLang({ python: getProblemStarterCode(fallbackSession.partCDSA, 'python'), cpp: getProblemStarterCode(fallbackSession.partCDSA, 'cpp'), java: getProblemStarterCode(fallbackSession.partCDSA, 'java'), javascript: getProblemStarterCode(fallbackSession.partCDSA, 'javascript') });
+      }
+    } catch (err) {
+      console.warn('Real-time test generation fallback:', err);
+      const fallbackSession = generateRandomTestSession(domainName);
+      setActiveSession(fallbackSession);
+      setActiveSampleCaseIndex(0);
+      const initCode = getProblemStarterCode(fallbackSession.partCDSA, compilerLanguage);
+      setPartCCode(initCode);
+      setCompilerCodeByLang({ python: getProblemStarterCode(fallbackSession.partCDSA, 'python'), cpp: getProblemStarterCode(fallbackSession.partCDSA, 'cpp'), java: getProblemStarterCode(fallbackSession.partCDSA, 'java'), javascript: getProblemStarterCode(fallbackSession.partCDSA, 'javascript') });
+    }
+    setGeneratingTest(false);
   };
 
   // Return to domain selection — fully resets all state
   const handleReturnToDomains = () => {
     setSelectedDomain(null);
+    setGeneratingTest(false);
     setCurrentPart('A');
     setActiveSession(null);
     setPartAAnswers({});
@@ -563,6 +864,21 @@ export default function MockTests() {
     setPartCCode('');
     setTestCaseResults([]);
     setFinalScorecard(null);
+    setTestTimeLeft(45 * 60);
+    if (onSetAssessmentActive) onSetAssessmentActive(false);
+  };
+
+  // Exit test intentionally with confirmation
+  const handleExitTest = (target = 'domain') => {
+    const shouldExit = window.confirm("Are you sure you want to exit this test? Your current progress will not be saved or evaluated.");
+    if (shouldExit) {
+      handleReturnToDomains();
+      if (onExitAssessment && target === 'dashboard') {
+        onExitAssessment();
+      } else if (target === 'dashboard' && onSwitchView) {
+        onSwitchView('feed');
+      }
+    }
   };
 
   const partAMCQs = activeSession?.partAMCQs || [];
@@ -651,70 +967,98 @@ export default function MockTests() {
     if (!selectedDomain) return;
     setSubmitting(true);
 
-    // 1. Calculate Part A Score (30 MCQs)
+    // 1. Calculate Part A Score (Real-time MCQs)
     let correctCountA = 0;
+    const totalA = Math.max(partAMCQs.length, 1);
     partAMCQs.forEach(q => {
       if (partAAnswers[q.id] === q.correct) {
         correctCountA++;
       }
     });
-    const scoreA = Math.round((correctCountA / 30) * 100);
+    const scoreA = Math.round((correctCountA / totalA) * 100);
 
-    // 2. Evaluate Part B Subjective Answers (4 Questions)
+    // 2. Evaluate Part B Subjective Answers in Real Time via Groq AI Agent
     let scoreB = 0;
+    let subjectiveAiReport = null;
     try {
-      const subjectivePayload = partBSubjective.map(q => `Q: ${q.question}\nA: ${partBAnswers[q.id] || 'Not answered'}`).join("\n\n");
-      const evalRes = await apiFetch('/api/ai/generate', {
+      const subjectivePayload = partBSubjective.map(q => ({
+        title: q.title,
+        question: q.question,
+        answer: partBAnswers[q.id] || 'Not answered'
+      }));
+      const evalRes = await apiFetch('/api/ai/evaluate-subjective', {
         method: 'POST',
         body: JSON.stringify({
-          instruction: `Evaluate these 4 subjective answers for a ${selectedDomain} test. Give an overall score out of 100 based on technical accuracy. Respond strictly in this format: "Score: [X]/100. Feedback: [Your summary]"`,
-          input_text: subjectivePayload,
-          max_tokens: 100
+          domain: selectedDomain,
+          answers: subjectivePayload
         })
       });
       const evalData = await evalRes.json();
-      const scoreMatch = (evalData.response || "").match(/Score:\s*(\d+)/i);
-      if (scoreMatch && scoreMatch[1]) {
-        scoreB = Math.min(100, parseInt(scoreMatch[1]));
-      } else {
-        // Fallback
-        let answeredCountB = 0;
-        let totalLengthB = 0;
-        partBSubjective.forEach(q => {
-          const ans = partBAnswers[q.id] || '';
-          if (ans.trim().length > 20) {
-            answeredCountB++;
-            totalLengthB += Math.min(25, Math.round(ans.trim().length / 10));
-          }
-        });
-        scoreB = Math.min(100, Math.round((answeredCountB / 4) * 60 + totalLengthB));
+      if (evalData.success && evalData.evaluation) {
+        scoreB = evalData.evaluation.score;
+        subjectiveAiReport = evalData.evaluation;
       }
     } catch (err) {
-      console.error('AI Eval Error:', err);
-      scoreB = 50;
+      console.error('Real-time subjective eval error:', err);
+      let answeredCountB = 0;
+      partBSubjective.forEach(q => {
+        if ((partBAnswers[q.id] || '').trim().length > 20) answeredCountB++;
+      });
+      scoreB = Math.min(100, Math.round((answeredCountB / Math.max(partBSubjective.length, 1)) * 80)) || 50;
     }
 
-    // 3. Evaluate Part C Code Submission by AI Code Quality Analyzer
-    const codeLen = (partCCode || '').trim().length;
-    const hasFunc = partCCode.includes('function');
-    const hasReturn = partCCode.includes('return');
+    // 3. Evaluate Part C Code Submission by Groq AI Code Quality Analyzer
     let scoreC = 0;
-    if (codeLen > 40 && hasFunc && hasReturn) {
-      scoreC = Math.min(100, Math.round(75 + (codeLen / 12)));
-    } else if (codeLen > 20) {
-      scoreC = 55;
+    let codeAiEval = null;
+    try {
+      if (partCCode && partCCode.trim().length > 10) {
+        const codeRes = await apiFetch('/api/ai/evaluate-code', {
+          method: 'POST',
+          body: JSON.stringify({
+            code: partCCode,
+            problemTitle: partCDSA?.title || 'Algorithm Challenge',
+            problemDescription: partCDSA?.description || '',
+            difficulty: partCDSA?.difficulty || 'Medium',
+            sampleInput: partCDSA?.sampleInput || '',
+            sampleOutput: partCDSA?.sampleOutput || ''
+          })
+        });
+        const codeData = await codeRes.json();
+        if (codeData && typeof codeData.score === 'number') {
+          scoreC = codeData.score;
+          codeAiEval = codeData;
+        }
+      }
+    } catch (e) {
+      console.warn('AI Code evaluation fallback:', e);
+    }
+
+    // Heuristic fallback if AI service was unreachable
+    if (scoreC === 0 && partCCode && partCCode.trim().length > 20) {
+      const codeLen = partCCode.trim().length;
+      const hasFunc = partCCode.includes('function') || partCCode.includes('=>') || partCCode.includes('def ');
+      const hasReturn = partCCode.includes('return');
+      if (codeLen > 40 && hasFunc && hasReturn) {
+        scoreC = Math.min(100, Math.round(75 + (codeLen / 12)));
+      } else {
+        scoreC = 55;
+      }
     }
 
     // Overall Weighted Score (Part A 50%, Part B 25%, Part C 25%)
     const weightedTotal = Math.round(scoreA * 0.5 + scoreB * 0.25 + scoreC * 0.25);
-    const calculatedScore = Math.round((weightedTotal / 100) * 35); // 35 total score
+    const calculatedScore = Math.round((weightedTotal / 100) * (partAMCQs.length + partBSubjective.length + 1));
 
     // Sage AI Evaluation Report Generation
     const aiEvalPayload = {
-      aiSummary: `Sage AI verified performance in ${selectedDomain}: Part A (30 MCQs): ${scoreA}%, Part B (4 Subjective Qs): ${scoreB}%, Part C (Code Structure): ${scoreC}%.`,
-      partAEvaluation: `Part A MCQ Accuracy: ${scoreA}%. Correctly answered ${correctCountA}/30 questions across Core CS and Aptitude.`,
-      partBEvaluation: `Part B Technical Depth: ${scoreB}%. Answered ${answeredCountB}/4 domain scenarios with clear technical reasoning.`,
-      partCEvaluation: `Part C Code Analysis: ${scoreC}%. Code submission parsed for syntax correctness and algorithmic time/space efficiency.`,
+      aiSummary: `Sage AI real-time evaluation in ${selectedDomain}: Part A (${partAMCQs.length} MCQs): ${scoreA}%, Part B (${partBSubjective.length} Subjective Qs): ${scoreB}%, Part C (${codeAiEval?.timeComplexity || 'Algorithmic'} Code): ${scoreC}%.`,
+      partAEvaluation: `Part A MCQ Accuracy: ${scoreA}%. Correctly answered ${correctCountA}/${partAMCQs.length} questions across ${selectedDomain} fundamentals.`,
+      partBEvaluation: subjectiveAiReport
+        ? `Part B Subjective Analysis (${scoreB}%): ${subjectiveAiReport.feedback}`
+        : `Part B Technical Depth: ${scoreB}%. Answered ${partBSubjective.length} domain scenarios with technical reasoning.`,
+      partCEvaluation: codeAiEval 
+        ? `Part C DSA Code (${codeAiEval.timeComplexity || 'O(N)'} Time, ${codeAiEval.spaceComplexity || 'O(1)'} Space): ${codeAiEval.feedback || 'Code verified successfully.'}`
+        : `Part C Code Analysis: ${scoreC}%. Code submission parsed for syntax correctness and algorithmic time/space efficiency.`,
       recommendation: scoreA >= 70 && scoreB >= 60 ? `Strong candidate recommendation for ${selectedDomain} interview shortlist.` : `Candidate recommended for further domain practice.`
     };
 
@@ -754,6 +1098,9 @@ export default function MockTests() {
           aiEvaluation: aiEvalPayload
         });
         setCurrentPart('results');
+        if (onSetAssessmentActive) onSetAssessmentActive(false);
+        // Dispatch real-time event so Performance Analytics updates immediately
+        window.dispatchEvent(new Event('earlyedge_results_updated'));
       } else {
         alert(`Test Submission Failed: ${data.message}`);
       }
@@ -764,27 +1111,43 @@ export default function MockTests() {
     setSubmitting(false);
   };
 
-  // Premium Verification Quiz Handler
-  const handleStartVerification = () => {
+  // Real-Time Premium Verification Quiz Handler
+  const handleStartVerification = async () => {
     setVerificationActive(true);
     setVerifAnswers({});
     setVerifResult(null);
+    setGeneratingVerif(true);
+
+    try {
+      const res = await apiFetch('/api/ai/generate-verification', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.questions && data.questions.length > 0) {
+        setVerifQuestions(data.questions.map(q => shuffleOptions(q)));
+      } else {
+        setVerifQuestions(CORE_CS_POOL.slice(0, 5).map(q => shuffleOptions(q)));
+      }
+    } catch (err) {
+      console.warn('Real-time verification fallback:', err);
+      setVerifQuestions(CORE_CS_POOL.slice(0, 5).map(q => shuffleOptions(q)));
+    }
+    setGeneratingVerif(false);
   };
 
   const handleSubmitVerification = async () => {
     let score = 0;
-    CORE_CS_POOL.slice(0, 5).forEach((q) => {
+    const questionsToGrade = verifQuestions.length > 0 ? verifQuestions : CORE_CS_POOL.slice(0, 5);
+    questionsToGrade.forEach((q) => {
       if (verifAnswers[q.id] === q.correct) score++;
     });
 
-    const passed = score >= 4;
+    const passed = score >= Math.ceil(questionsToGrade.length * 0.8); // 80% passing standard
 
     try {
       const res = await apiFetch('/api/assessments/verification', {
         method: 'POST',
         body: JSON.stringify({
           score,
-          total: 5,
+          total: questionsToGrade.length,
           passed
         })
       });
@@ -808,17 +1171,7 @@ export default function MockTests() {
           </p>
         </div>
 
-        {/* Verification Status Button */}
-        {!verificationActive && !selectedDomain && (
-          <button
-            className="btn btn-primary"
-            onClick={handleStartVerification}
-            style={{ background: user?.isVerified ? 'var(--success)' : 'var(--primary)', color: user?.isVerified ? 'var(--bg-dark)' : 'white' }}
-          >
-            <i className={user?.isVerified ? "fa-solid fa-shield-halved" : "fa-solid fa-certificate"}></i>
-            {user?.isVerified ? 'Verified Talent' : 'Take Verification Test'}
-          </button>
-        )}
+
       </div>
 
       {/* VERIFICATION TEST MODAL / CONSOLE */}
@@ -835,41 +1188,54 @@ export default function MockTests() {
           {!verifResult ? (
             <div>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                Answer 5 Core CS questions. Pass with 80%+ (4/5) to earn your <strong>Verified Talent Badge</strong> and unlock startup job opportunities!
+                Answer 5 fresh Core CS questions generated live by Groq AI. Pass with 80%+ to earn your <strong>Verified Talent Badge</strong>!
               </p>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
-                {CORE_CS_POOL.slice(0, 5).map((q, idx) => (
-                  <div key={q.id} style={{ background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <strong style={{ fontSize: '0.95rem', display: 'block', marginBottom: '0.8rem' }}>
-                      Q{idx + 1}. {q.question}
-                    </strong>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                      {q.options.map((opt, oIdx) => (
-                        <button
-                          key={oIdx}
-                          type="button"
-                          className="btn btn-sm btn-glass"
-                          style={{
-                            textAlign: 'left',
-                            justifyContent: 'flex-start',
-                            borderColor: verifAnswers[q.id] === opt ? 'var(--primary)' : 'var(--border)',
-                            background: verifAnswers[q.id] === opt ? 'var(--primary-glow)' : 'transparent',
-                            color: verifAnswers[q.id] === opt ? 'var(--primary)' : 'var(--text-main)'
-                          }}
-                          onClick={() => setVerifAnswers(prev => ({ ...prev, [q.id]: opt }))}
-                        >
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
+              {generatingVerif ? (
+                <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+                  <i className="fa-solid fa-brain fa-spin" style={{ fontSize: '2.5rem', color: 'var(--primary)', marginBottom: '1rem' }}></i>
+                  <p style={{ color: 'var(--text-main)', fontWeight: 'bold' }}>Groq AI Agent is generating your live verification questions...</p>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Tailoring OS, DBMS, Networks & Algorithms questions</span>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
+                    {(verifQuestions.length > 0 ? verifQuestions : CORE_CS_POOL.slice(0, 5)).map((q, idx) => (
+                      <div key={q.id} style={{ background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 'bold' }}>{q.category || 'Core CS'}</span>
+                        </div>
+                        <strong style={{ fontSize: '0.95rem', display: 'block', marginBottom: '0.8rem' }}>
+                          Q{idx + 1}. {q.question}
+                        </strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                          {q.options.map((opt, oIdx) => (
+                            <button
+                              key={oIdx}
+                              type="button"
+                              className="btn btn-sm btn-glass"
+                              style={{
+                                textAlign: 'left',
+                                justifyContent: 'flex-start',
+                                borderColor: verifAnswers[q.id] === opt ? 'var(--primary)' : 'var(--border)',
+                                background: verifAnswers[q.id] === opt ? 'var(--primary-glow)' : 'transparent',
+                                color: verifAnswers[q.id] === opt ? 'var(--primary)' : 'var(--text-main)'
+                              }}
+                              onClick={() => setVerifAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleSubmitVerification}>
-                Submit Verification Test
-              </button>
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleSubmitVerification}>
+                    Submit Verification Test
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '1.5rem' }}>
@@ -895,7 +1261,9 @@ export default function MockTests() {
       {/* DOMAIN SELECTION GRID */}
       {!selectedDomain && (
         <div>
-          <h4 style={{ marginBottom: '1.5rem', color: 'var(--text-main)' }}>Select Your Engineering Domain:</h4>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ margin: 0, color: 'var(--text-main)' }}>Select Your Engineering Domain:</h4>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
             {[
               { name: 'SDE / Full Stack', icon: 'fa-code', color: '#14B8A6', desc: 'React, Node.js, System Architecture, DSA & Web Microservices' },
@@ -941,14 +1309,43 @@ export default function MockTests() {
         </div>
       )}
 
+      {/* REAL-TIME TEST GENERATING SPINNER */}
+      {selectedDomain && generatingTest && (
+        <div className="glass-card" style={{ maxWidth: '750px', margin: '2rem auto', padding: '3.5rem', textAlign: 'center', borderTop: '4px solid var(--primary)' }}>
+          <i className="fa-solid fa-brain fa-spin" style={{ fontSize: '3.5rem', color: 'var(--primary)', marginBottom: '1.5rem' }}></i>
+          <h3>Generating Real-Time Assessment: {selectedDomain}</h3>
+          <p style={{ color: 'var(--text-muted)', maxWidth: '520px', margin: '0.8rem auto 1.5rem', lineHeight: '1.6' }}>
+            Sage AI is crafting a fresh assessment via Groq LLM: generating domain MCQs, architectural scenarios, and a live algorithmic challenge.
+          </p>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.6rem', background: 'rgba(20, 184, 166, 0.1)', border: '1px solid #14b8a6', padding: '0.5rem 1.2rem', borderRadius: '20px', color: '#14b8a6', fontSize: '0.85rem' }}>
+            <i className="fa-solid fa-bolt"></i> Real-Time Groq AI Generation
+          </div>
+          <div style={{ marginTop: '1.5rem' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-glass"
+              style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171' }}
+              onClick={() => handleExitTest('domain')}
+            >
+              <i className="fa-solid fa-xmark" style={{ marginRight: '0.4rem' }}></i> Cancel & Return to Domains
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ACTIVE MULTI-PART TEST CONSOLE */}
-      {selectedDomain && currentPart !== 'results' && (
+      {selectedDomain && !generatingTest && currentPart !== 'results' && (
         <div>
           {/* STEPPER HEADER BAR */}
           <div className="glass-card" style={{ padding: '1.2rem 2rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h4 style={{ margin: 0, color: 'var(--primary)' }}>{selectedDomain} Assessment</h4>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Randomized Multi-Part Session</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h4 style={{ margin: 0, color: 'var(--primary)' }}>{selectedDomain} Assessment</h4>
+                <span style={{ fontSize: '0.72rem', background: 'rgba(20, 184, 166, 0.15)', color: '#14b8a6', border: '1px solid #14b8a6', padding: '0.15rem 0.5rem', borderRadius: '10px' }}>
+                  <i className="fa-solid fa-bolt"></i> Real-Time AI
+                </span>
+              </div>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Live AI Generated Multi-Part Session</span>
             </div>
 
             {/* PART STEPPER TABS */}
@@ -957,13 +1354,13 @@ export default function MockTests() {
                 className={`btn btn-sm ${currentPart === 'A' ? 'btn-primary' : 'btn-glass'}`}
                 onClick={() => setCurrentPart('A')}
               >
-                Part A: 30 MCQs
+                Part A: {partAMCQs.length} MCQs
               </button>
               <button
                 className={`btn btn-sm ${currentPart === 'B' ? 'btn-primary' : 'btn-glass'}`}
                 onClick={() => setCurrentPart('B')}
               >
-                Part B: 4 Subjective Qs
+                Part B: {partBSubjective.length} Subjective Qs
               </button>
               <button
                 className={`btn btn-sm ${currentPart === 'C' ? 'btn-primary' : 'btn-glass'}`}
@@ -987,8 +1384,13 @@ export default function MockTests() {
               <button className="btn btn-sm btn-glass" onClick={() => handleSelectDomain(selectedDomain)} title="Generate new set of randomized questions">
                 <i className="fa-solid fa-rotate-right"></i> New Questions
               </button>
-              <button className="btn btn-sm btn-glass" onClick={() => setSelectedDomain(null)}>
-                Exit Test
+              <button
+                type="button"
+                className="btn btn-sm btn-glass"
+                style={{ borderColor: 'rgba(239, 68, 68, 0.45)', color: '#f87171', fontWeight: 600 }}
+                onClick={() => handleExitTest('domain')}
+              >
+                <i className="fa-solid fa-right-from-bracket" style={{ marginRight: '0.35rem' }}></i> Exit Test
               </button>
             </div>
           </div>
@@ -1106,67 +1508,44 @@ export default function MockTests() {
 
           {/* ==================================================== */}
           {/* PART C: 1 LIVE DSA CODING CHALLENGE                  */}
+          {/* MULTI-LANGUAGE COMPILER (Python, C++, Java, JS)      */}
           {/* ==================================================== */}
           {currentPart === 'C' && partCDSA && (
             <div>
-              <div style={{ marginBottom: '1.5rem' }}>
-                <h4 style={{ margin: 0 }}>Part C: Live DSA Coding Challenge</h4>
+              <div style={{ marginBottom: '1rem' }}>
+                <h4 style={{ margin: 0 }}>Part C: Live DSA Algorithmic Challenge</h4>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
-                  Write clean, fully executable code to solve the Data Structures & Algorithms problem below.
+                  Write your solution in the editor. Choose a language, run against sample cases, then submit.
                 </p>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-                
-                {/* PROBLEM STATEMENT CARD */}
-                <div className="glass-card" style={{ padding: '2rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h4 style={{ margin: 0 }}>{partCDSA.title}</h4>
-                    <span className="badge" style={{ background: 'var(--primary-glow)', color: 'var(--primary)', fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
-                      {partCDSA.difficulty}
-                    </span>
-                  </div>
-
-                  <p style={{ fontSize: '0.93rem', lineHeight: '1.6', color: 'var(--text-main)', marginBottom: '1.5rem' }}>
-                    {partCDSA.description}
-                  </p>
-
-                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
-                    <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>Sample Input:</strong>
-                    <code style={{ color: 'var(--primary)', fontFamily: 'monospace', fontSize: '0.9rem' }}>{partCDSA.sampleInput}</code>
-                  </div>
-
-                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>Expected Output:</strong>
-                    <code style={{ color: 'var(--success)', fontFamily: 'monospace', fontSize: '0.9rem' }}>{partCDSA.sampleOutput}</code>
-                  </div>
-                </div>
-
-                {/* CODE EDITOR CONSOLE (CODE ONLY - NO COMPILER) */}
-                <div className="glass-card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
-                      <i className="fa-solid fa-code" style={{ color: 'var(--primary)', marginRight: '0.4rem' }}></i> Code Solution Editor
-                    </span>
-                    <span className="badge" style={{ background: 'var(--primary-glow)', color: 'var(--primary)', fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
-                      AI Evaluated on Submission
-                    </span>
-                  </div>
-
-                  <textarea
-                    className="form-input"
-                    rows="14"
-                    placeholder="// Write your clean solution code here..."
-                    value={partCCode}
-                    onChange={e => setPartCCode(e.target.value)}
-                    style={{
-                      fontFamily: 'monospace', fontSize: '0.92rem', background: '#090d16',
-                      color: '#4ade80', lineHeight: '1.6', flex: 1, resize: 'none', padding: '1rem'
-                    }}
-                  />
-                </div>
-
-              </div>
+              {/* PRACTICE ARENA-GRADE LIVE CODING ENVIRONMENT */}
+              <CodeEditor
+                code={partCCode}
+                onChange={(val) => {
+                  setPartCCode(val);
+                  setCompilerCodeByLang(prev => ({ ...prev, [compilerLanguage]: val }));
+                }}
+                language={compilerLanguage}
+                onSelectLanguage={handleSwitchCompilerLang}
+                onReset={() => {
+                  if (window.confirm(`Reset ${compilerLanguage.toUpperCase()} code to default template?`)) {
+                    const defCode = getProblemStarterCode(partCDSA, compilerLanguage);
+                    setPartCCode(defCode);
+                    setCompilerCodeByLang(prev => ({ ...prev, [compilerLanguage]: defCode }));
+                    setCompilerOutput(null);
+                  }
+                }}
+                onRun={handleCompileAndRun}
+                isCompiling={isCompiling}
+                compilerOutput={compilerOutput}
+                customStdin={customStdin}
+                onChangeStdin={setCustomStdin}
+                minHeight="720px"
+                problem={partCDSA}
+                onSubmitTest={handleSubmitFullTest}
+                submitting={submitting}
+              />
 
               {/* SUBMIT FULL ASSESSMENT FOOTER */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
@@ -1264,7 +1643,17 @@ export default function MockTests() {
           )}
 
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={handleReturnToDomains}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                handleReturnToDomains();
+                if (onSwitchView) onSwitchView('results');
+              }}
+            >
+              <i className="fa-solid fa-chart-line" style={{ marginRight: '0.4rem' }}></i> View in Performance Analytics
+            </button>
+            <button className="btn btn-glass" onClick={handleReturnToDomains}>
               <i className="fa-solid fa-arrow-left"></i> Return to Domain Selection
             </button>
             <button className="btn btn-glass" onClick={() => handleSelectDomain(finalScorecard?.domain || selectedDomain)}>
@@ -1273,6 +1662,15 @@ export default function MockTests() {
           </div>
         </div>
       )}
+
+      {/* ==================================================== */}
+      {/* MULTI-LANGUAGE COMPILER SANDBOX PLAYGROUND MODAL    */}
+      {/* ==================================================== */}
+      <LeetCodeCompilerModal
+        isOpen={showSandboxModal}
+        onClose={() => setShowSandboxModal(false)}
+        problemsPool={SHARED_DSA_POOL}
+      />
     </div>
   );
 }

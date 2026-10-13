@@ -81,7 +81,7 @@ const BEHAVIORAL_QUESTIONS = [
   "What is your greatest technical strength and weakness?"
 ];
 
-export default function AIInterview() {
+export default function AIInterview({ onSetAssessmentActive, onSwitchView, onExitAssessment }) {
   const { user, apiFetch } = useContext(AuthContext);
   const speech = useSpeech();
 
@@ -112,6 +112,13 @@ export default function AIInterview() {
 
   const [timeLeft, setTimeLeft] = useState(15 * 60);
 
+  // Notify parent of active interview state for leave interceptor
+  useEffect(() => {
+    if (onSetAssessmentActive) {
+      onSetAssessmentActive(interviewStarted && !interviewComplete);
+    }
+  }, [interviewStarted, interviewComplete, onSetAssessmentActive]);
+
   // Timer effect
   useEffect(() => {
     let timer;
@@ -135,6 +142,7 @@ export default function AIInterview() {
     isInterviewActiveRef.current = true;
     return () => {
       isInterviewActiveRef.current = false;
+      if (onSetAssessmentActive) onSetAssessmentActive(false);
       speech.stopListening();
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -236,8 +244,7 @@ export default function AIInterview() {
     
     speakAndListen(ackMsg, (answer) => {
       if (!isInterviewActiveRef.current) return;
-      // Launch first question
-      askNextQuestion(detectedStack);
+      handleConversationalTurn(detectedStack, "I am interested in " + stackLabel + ". Let's begin the technical interview.");
     });
   };
 
@@ -271,28 +278,32 @@ export default function AIInterview() {
       }
 
       const elapsedMinutes = Math.floor(elapsed / 60000);
-      const instruction = `You are an expert technical interviewer conducting a strict 15-minute interview for a ${techStack} role.
-Your goal is to assess the candidate through a natural, human-like conversation.
+      const instruction = `You are an elite, adaptive technical interviewer conducting a live, real-time voice interview for a ${techStack} role.
+Your goal is to assess the candidate dynamically in real time through natural, human-like technical dialogue.
 Candidate Profile:
 - Name: ${user.name}
 - University: ${user.university || 'Not specified'}
 - Stream/Branch: ${user.stream || ''} ${user.branch || ''}
-The interview has been going on for ${elapsedMinutes} minutes. You MUST NOT conclude the interview yourself. Always ask follow-up questions to keep the conversation going. The system will forcefully end the interview when 15 minutes is reached.
-Interview flow:
-1. Start by greeting the candidate by their Name and asking for an introduction.
-2. Ask domain-specific questions (${techStack}) tailoring them to their University background if possible.
-3. Ask some core computer science and DSA basics.
-Be highly conversational. Acknowledge the candidate's answers naturally. Ask follow-up questions if their answer is incomplete.
-You must return a JSON response with two keys:
-- "speech": The exact text you want to say to the candidate.
-- "score": An integer from 1 to 10 evaluating their PREVIOUS answer (if applicable). Use 5 if it's the first question.`;
+Elapsed Time: ${elapsedMinutes} minutes into a 15-minute session. Do NOT end the interview yourself.
+
+INTERVIEW GUIDELINES:
+1. Greet the candidate by name if this is the start.
+2. Ask sharp, real-time technical questions tailored to ${techStack}.
+3. Listen deeply to what the candidate actually says and follow up dynamically (testing edge cases, real production trade-offs, and design rationale).
+4. Keep each spoken turn concise and natural (under 50 words) so it speaks cleanly over audio speech synthesis. Always end with your question.
+
+You MUST respond strictly with a valid JSON object matching:
+{
+  "speech": "<concise text to speak to the candidate, ending with your question>",
+  "score": <integer from 1 to 10 evaluating candidate's previous answer. Use 6 for greeting/intro>
+}`;
 
       const response = await apiFetch('/api/ai/generate', {
         method: 'POST',
         body: JSON.stringify({
           instruction,
           history: historyPayload,
-          max_tokens: 150,
+          max_tokens: 1500,
           json_mode: true
         })
       });
@@ -300,12 +311,19 @@ You must return a JSON response with two keys:
       
       let aiResponse = { speech: "I'm having trouble thinking, let's try that again.", score: 5 };
       try {
-        let cleanedJSON = data.response.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
-        aiResponse = JSON.parse(cleanedJSON);
+        let rawStr = data.response || '';
+        // Extract json object if surrounded by extra markdown or reasoning text
+        const jsonMatch = rawStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          aiResponse = JSON.parse(jsonMatch[0]);
+        } else {
+          let cleanedJSON = rawStr.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+          aiResponse = JSON.parse(cleanedJSON);
+        }
       } catch (e) {
         console.error("JSON parse error, attempting extraction:", data.response);
         // Fallback string extraction if JSON completely fails
-        aiResponse.speech = data.response.replace(/[{}"\\]/g, '').trim();
+        aiResponse.speech = (data.response || '').replace(/[{}"\\]/g, '').trim() || "Let's continue to the next technical topic.";
       }
       if (userAnswer) {
          chatHistoryRef.current.push({ role: 'user', content: userAnswer, score: aiResponse.score || 5 });
@@ -420,6 +438,8 @@ You must return a JSON response with two keys:
         })
       });
       console.log('Voice interview saved successfully!');
+      // Broadcast real-time update event so Performance Analytics updates immediately
+      window.dispatchEvent(new Event('earlyedge_results_updated'));
     } catch (err) {
       console.error(err);
     }
@@ -444,17 +464,7 @@ You must return a JSON response with two keys:
     });
   };
 
-  const handleExitInterview = () => {
-    if (confirm('Exit active voice interview? Any unsaved scoring data will be lost.')) {
-      isInterviewActiveRef.current = false;
-      speech.stopListening();
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-      setInterviewStarted(false);
-      setQuizComplete(false);
-    }
-  };
+
 
   // Show initial selector screen
   if (!interviewStarted) {
@@ -531,8 +541,11 @@ You must return a JSON response with two keys:
         {/* Dynamic breakdown injected locally inside CSS styled container */}
         <div style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', lineHeight: '1.7', fontSize: '0.95rem' }} dangerouslySetInnerHTML={{ __html: evaluationReportHTML }}></div>
 
-        <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', marginTop: '2.5rem' }}>
-          <button className="btn btn-primary" onClick={() => setInterviewStarted(false)}>
+        <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', marginTop: '2.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={() => { if (onSwitchView) onSwitchView('results'); }}>
+            <i className="fa-solid fa-chart-line" style={{ marginRight: '0.4rem' }}></i> View in Performance Analytics
+          </button>
+          <button className="btn btn-glass" onClick={() => setInterviewStarted(false)}>
             <i className="fa-solid fa-redo"></i> Take Another Interview
           </button>
           <button className="btn btn-glass" onClick={downloadReportPDF}>
@@ -546,9 +559,34 @@ You must return a JSON response with two keys:
   // ============================================
   // RENDER DYNAMIC VOCAL AI ASSESSMENT CONSOLE
   // ============================================
-  // Calculate if exit is allowed (only after 12 mins = 720 secs elapsed, so timeLeft <= 180 secs)
-  const canExit = timeLeft <= 3 * 60;
-  
+  // Exit interview handlers
+  const handleExitInterview = () => {
+    if (window.confirm("Are you sure you want to end and exit this voice interview? Your evaluation report will be generated now.")) {
+      speech.stopListening();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      handleEndInterview();
+      if (onSetAssessmentActive) onSetAssessmentActive(false);
+    }
+  };
+
+  const handleCancelInterview = () => {
+    if (window.confirm("Are you sure you want to exit and abandon this interview? Your progress will not be saved.")) {
+      isInterviewActiveRef.current = false;
+      speech.stopListening();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      setInterviewStarted(false);
+      setQuizComplete(false);
+      setChatHistory([]);
+      setTranscriptLines([]);
+      if (onSetAssessmentActive) onSetAssessmentActive(false);
+      if (onExitAssessment) {
+        onExitAssessment();
+      } else if (onSwitchView) {
+        onSwitchView('feed');
+      }
+    }
+  };
+
   // Format timeLeft
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60);
@@ -559,24 +597,24 @@ You must return a JSON response with two keys:
   return (
     <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto', padding: '2.5rem', position: 'relative' }}>
       
-      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
+      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
         <div style={{
-          background: timeLeft <= 180 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(20, 184, 166, 0.2)',
-          color: timeLeft <= 180 ? '#ef4444' : '#14b8a6',
-          padding: '5px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '1.1rem',
-          border: `1px solid ${timeLeft <= 180 ? '#ef4444' : '#14b8a6'}`
+          background: timeLeft <= 180 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(37, 99, 235, 0.15)',
+          color: timeLeft <= 180 ? '#ef4444' : '#60a5fa',
+          padding: '5px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '1rem',
+          border: `1px solid ${timeLeft <= 180 ? '#ef4444' : 'rgba(37, 99, 235, 0.4)'}`
         }}>
-          <i className="fa-regular fa-clock" style={{ marginRight: '8px' }}></i>
+          <i className="fa-regular fa-clock" style={{ marginRight: '6px' }}></i>
           {formatTime(timeLeft)}
         </div>
         
-        <button onClick={handleExitInterview} disabled={!canExit} title={canExit ? "End Interview" : "You must complete at least 12 minutes of the interview"} style={{
-          background: 'none', border: 'none',
-          color: canExit ? 'var(--text-muted)' : 'rgba(255,255,255,0.2)', 
-          cursor: canExit ? 'pointer' : 'not-allowed', 
-          fontSize: '1.8rem', zIndex: 100
-        }}>
-          <i className="fa-solid fa-xmark"></i>
+        <button
+          onClick={handleCancelInterview}
+          title="Exit and abandon interview"
+          className="btn btn-sm btn-glass"
+          style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', padding: '0.3rem 0.6rem' }}
+        >
+          <i className="fa-solid fa-right-from-bracket" style={{ marginRight: '0.3rem' }}></i> Exit
         </button>
       </div>
 

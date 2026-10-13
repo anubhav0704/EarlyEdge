@@ -16,6 +16,7 @@ import PostJob from './views/PostJob.jsx';
 import RecruiterAnalytics from './views/RecruiterAnalytics.jsx';
 import AICareerCoach from './views/AICareerCoach.jsx';
 import Landing from './views/Landing.jsx';
+import PracticeArena from './views/PracticeArena.jsx';
 
 export default function App() {
   const { user, loading, login, signup, loginWithGoogle, logout, forgotPassword, resetPassword } = useContext(AuthContext);
@@ -62,12 +63,83 @@ export default function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  // Sync views in session storage
+  // Assessment leave warning state
+  const [isAssessmentActive, setIsAssessmentActive] = useState(false);
+  const [showLeaveWarning, setShowLeaveWarning] = useState(false);
+  const [pendingView, setPendingView] = useState(null);
+  const [assessmentResetKey, setAssessmentResetKey] = useState(0);
+
+  // Sync views in session storage with leave interception
   const handleSwitchView = (viewId) => {
+    if (isAssessmentActive) {
+      setPendingView(viewId);
+      setShowLeaveWarning(true);
+      return;
+    }
     setCurrentView(viewId);
     sessionStorage.setItem('currentView', viewId);
     setMobileMenuOpen(false);
   };
+
+  const confirmLeaveAssessment = () => {
+    setIsAssessmentActive(false);
+    setShowLeaveWarning(false);
+    // Force increment key to completely unmount and reset MockTests and AIInterview
+    setAssessmentResetKey(prev => prev + 1);
+
+    // If pendingView was null (e.g. browser back button) or same view, navigate to 'feed' or target
+    const target = (pendingView && pendingView !== currentView) ? pendingView : (pendingView || 'feed');
+    setCurrentView(target);
+    sessionStorage.setItem('currentView', target);
+    setPendingView(null);
+    setMobileMenuOpen(false);
+  };
+
+  const cancelLeaveAssessment = () => {
+    setShowLeaveWarning(false);
+    setPendingView(null);
+  };
+
+  // Browser back button & reload interception during active assessments
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isAssessmentActive) {
+        e.preventDefault();
+        e.returnValue = 'You have an active test or interview in progress. Leaving now can forfeit your progress and affect your overall performance.';
+        return e.returnValue;
+      }
+    };
+
+    const handlePopState = () => {
+      if (isAssessmentActive) {
+        window.history.pushState(null, '', window.location.href);
+        setShowLeaveWarning(true);
+      }
+    };
+
+    if (isAssessmentActive) {
+      window.history.pushState(null, '', window.location.href);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('popstate', handlePopState);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isAssessmentActive]);
+
+  // Keyboard shortcut Ctrl+B or Cmd+B to toggle menu bar
+  useEffect(() => {
+    const handleKeyNav = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setSidebarCollapsed(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyNav);
+    return () => window.removeEventListener('keydown', handleKeyNav);
+  }, []);
 
   const toggleTheme = () => {
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
@@ -528,6 +600,7 @@ export default function App() {
             <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)}>
               <i className="fa-solid fa-bars"></i>
             </button>
+
             <div>
               <h2>{currentView === 'landing' ? 'HOME' : currentView.toUpperCase().replace('_', ' ')}</h2>
               {currentView !== 'landing' && (
@@ -586,14 +659,92 @@ export default function App() {
         {currentView === 'landing' && <Landing onEnterPortal={() => handleSwitchView('feed')} onToggleTheme={toggleTheme} theme={theme} isAuthenticated={true} />}
         {currentView === 'feed' && <Feed onSwitchView={handleSwitchView} />}
         {currentView === 'squad' && <SquadMarket />}
-        {currentView === 'tests' && <MockTests />}
-        {currentView === 'interviews' && <AIInterview />}
+        {currentView === 'tests' && (
+          <MockTests
+            key={`test-session-${assessmentResetKey}`}
+            onSetAssessmentActive={setIsAssessmentActive}
+            onSwitchView={handleSwitchView}
+            onExitAssessment={() => {
+              setIsAssessmentActive(false);
+              setAssessmentResetKey(prev => prev + 1);
+              handleSwitchView('feed');
+            }}
+          />
+        )}
+        {currentView === 'practice' && <PracticeArena />}
+        {currentView === 'interviews' && (
+          <AIInterview
+            key={`interview-session-${assessmentResetKey}`}
+            onSetAssessmentActive={setIsAssessmentActive}
+            onSwitchView={handleSwitchView}
+            onExitAssessment={() => {
+              setIsAssessmentActive(false);
+              setAssessmentResetKey(prev => prev + 1);
+              handleSwitchView('feed');
+            }}
+          />
+        )}
         {currentView === 'results' && <Results onSwitchView={handleSwitchView} />}
         {currentView === 'profile' && <Profile />}
         {currentView === 'recruiter' && <PostJob onSwitchView={handleSwitchView} />}
         {currentView === 'analytics' && <RecruiterAnalytics onSwitchView={handleSwitchView} />}
         {currentView === 'coach' && <AICareerCoach onSwitchView={handleSwitchView} />}
       </main>
+
+      {/* ASSESSMENT LEAVE WARNING POPUP MODAL */}
+      {showLeaveWarning && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)',
+          backdropFilter: 'blur(8px)', zIndex: 99999,
+          display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1.2rem'
+        }}>
+          <div className="glass-card" style={{
+            maxWidth: '520px', width: '100%', padding: '2.5rem',
+            borderTop: '5px solid #ef4444', textAlign: 'center',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{
+              width: '65px', height: '65px', borderRadius: '50%',
+              background: 'rgba(239, 68, 68, 0.15)', border: '2px solid #ef4444',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 1.2rem auto', color: '#ef4444', fontSize: '2rem'
+            }}>
+              <i className="fa-solid fa-triangle-exclamation"></i>
+            </div>
+
+            <h3 style={{ margin: '0 0 0.8rem 0', color: 'var(--text-main)', fontSize: '1.4rem' }}>
+              Leave Active Assessment?
+            </h3>
+
+            <p style={{ color: '#f87171', fontSize: '0.95rem', fontWeight: 600, marginBottom: '1rem', lineHeight: '1.5' }}>
+              Warning: Leaving now will forfeit your test and can negatively impact your overall performance!
+            </p>
+
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: '1.6', marginBottom: '2rem' }}>
+              You are currently participating in an active Skill Test or AI Interview session. If you navigate back or leave the page, your progress will not be saved or evaluated, and this will forfeit your test submission and decrease your Technical Quotient (TQ) percentile standing.
+            </p>
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-primary"
+                onClick={cancelLeaveAssessment}
+                style={{ padding: '0.75rem 1.8rem', fontWeight: 600, fontSize: '0.92rem' }}
+              >
+                <i className="fa-solid fa-arrow-left" style={{ marginRight: '0.4rem' }}></i>
+                Stay & Continue Assessment
+              </button>
+              <button
+                className="btn btn-glass"
+                onClick={confirmLeaveAssessment}
+                style={{ borderColor: '#ef4444', color: '#f87171', padding: '0.75rem 1.4rem', fontSize: '0.88rem' }}
+              >
+                <i className="fa-solid fa-right-from-bracket" style={{ marginRight: '0.4rem' }}></i>
+                Abandon & Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

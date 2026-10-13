@@ -17,12 +17,29 @@ export default function AICareerCoach({ onSwitchView }) {
     };
   }, []);
 
-  // Format message text to HTML so "**" is never rendered literally
+  // Format message text to HTML and remove robotic AI artifacts like raw markdown tables
   const formatMessageHtml = (rawText) => {
     if (!rawText) return '';
-    let clean = rawText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    let clean = rawText;
+    
+    // Clean out markdown table separators and raw pipe columns if model outputs them
+    clean = clean.replace(/\|[-:\s|]+\|/g, ''); // removes |---|---| lines
+    clean = clean.replace(/^\|(.*)\|$/gm, '$1'); // removes leading and trailing table pipes
+    clean = clean.replace(/\|/g, ' • '); // replaces inner table pipes with neat bullets
+    
+    // Subheadings
+    clean = clean.replace(/###\s+(.*)/g, '<strong style="display:block;margin-top:0.6rem;font-size:0.98rem;color:var(--primary);">$1</strong>');
+    clean = clean.replace(/##\s+(.*)/g, '<strong style="display:block;margin-top:0.8rem;font-size:1.05rem;color:var(--secondary);">$1</strong>');
+    
+    // Bold and italics
+    clean = clean.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     clean = clean.replace(/\*(.*?)\*/g, '<em>$1</em>');
     clean = clean.replace(/\*\*/g, ''); // Safety fallback
+    
+    // Natural bullet list formatting
+    clean = clean.replace(/^•\s+(.*)/gm, '<span style="display:block;margin-left:0.4rem;margin-bottom:0.2rem;">• $1</span>');
+    clean = clean.replace(/^-\s+(.*)/gm, '<span style="display:block;margin-left:0.4rem;margin-bottom:0.2rem;">• $1</span>');
+    
     return clean;
   };
 
@@ -40,8 +57,86 @@ export default function AICareerCoach({ onSwitchView }) {
 
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [currentSentiment, setCurrentSentiment] = useState('🧠 Analytical & Empathetic');
+  const [currentSentiment, setCurrentSentiment] = useState('🧠 Human-Like Mentor');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [memoryNotes, setMemoryNotes] = useState([]);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
   const chatEndRef = useRef(null);
+
+  // Load persistent conversation and user memory from MongoDB
+  const loadChatMemory = async () => {
+    try {
+      const res = await apiFetch('/api/ai/coach/history');
+      const data = await res.json();
+      if (data.success && isMountedRef.current) {
+        if (data.messages && data.messages.length > 0) {
+          setMessages(data.messages.map(m => ({
+            ...m,
+            id: m.id || m._id || `msg-${Date.now()}-${Math.random()}`
+          })));
+        }
+        if (data.memoryNotes) {
+          setMemoryNotes(data.memoryNotes);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load coach history from DB:', err);
+    }
+  };
+
+  // Start a fresh chat session while preserving long-term memory notes
+  const handleNewChat = async () => {
+    if (messages.length > 2 && !window.confirm("Start a new chat with Sage? Your active dialogue will be reset, but your long-term memory profile and learned goals remain safely saved.")) {
+      return;
+    }
+    try {
+      await apiFetch('/api/ai/coach/clear', { method: 'POST' });
+    } catch (e) {
+      console.warn('Could not clear history on server:', e);
+    }
+    setMessages([
+      {
+        id: `msg-${Date.now()}`,
+        sender: 'Sage',
+        sentiment: '🧠 Human-Like Mentor',
+        text: `Hey ${user?.name || 'Talent'}! Fresh conversation started. What technical challenge, interview concept, or career question are we focusing on today?`,
+        timestamp: Date.now(),
+        action: null
+      }
+    ]);
+    setChatInput('');
+  };
+
+  // Clear chat history
+  const handleClearChat = async () => {
+    if (!window.confirm("Are you sure you want to clear your conversation history with Sage?")) return;
+    try {
+      await apiFetch('/api/ai/coach/clear', { method: 'POST' });
+      setMessages([
+        {
+          id: `msg-${Date.now()}`,
+          sender: 'Sage',
+          sentiment: '🚀 Strategic & Human-Like',
+          text: `Hey ${user?.name || 'Talent'}! Fresh conversation started. What are you working on or preparing for today?`,
+          timestamp: Date.now(),
+          action: null
+        }
+      ]);
+    } catch (e) {
+      console.error('Failed to clear chat:', e);
+    }
+  };
+
+  // Handle Escape key to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
   // Fetch student performance data
   const loadPerformanceData = async () => {
@@ -63,6 +158,7 @@ export default function AICareerCoach({ onSwitchView }) {
 
   useEffect(() => {
     loadPerformanceData();
+    loadChatMemory();
   }, []);
 
   // Auto-scroll on new messages
@@ -271,18 +367,30 @@ Tell me more about what role or skill you want to target next (e.g. Full Stack, 
     setIsTyping(true);
 
     try {
-      const response = await apiFetch('/api/ai/generate', {
+      const response = await apiFetch('/api/ai/coach-agent', {
         method: 'POST',
         body: JSON.stringify({
-          instruction: "You are SAGE, an AI Career Coach. Respond to the user's query thoughtfully.",
-          input_text: userQuery,
-          max_tokens: 150
+          query: userQuery,
+          history: messages.slice(-6),
+          studentContext: {
+            name: user?.name,
+            university: user?.university,
+            tqScore: calculateTQ(),
+            isVerified: user?.isVerified,
+            mockTestsCount: mockTests.length,
+            interviewsCount: interviews.length,
+            recentTestDomain: mockTests[0]?.domain || ''
+          }
         })
       });
       const data = await response.json();
       const aiResponse = data.response || "I'm having trouble thinking right now. Let's try again.";
       
-      const sentiment = "🧠 Analytical & Educational";
+      if (data.memoryNotes && Array.isArray(data.memoryNotes) && isMountedRef.current) {
+        setMemoryNotes(data.memoryNotes);
+      }
+
+      const sentiment = "🧠 Sage Mentor (Groq)";
       
       if (isMountedRef.current) {
         streamBotMessage({ sentiment, text: aiResponse, action: null });
@@ -310,8 +418,8 @@ Tell me more about what role or skill you want to target next (e.g. Full Stack, 
         <div>
           <h3 style={{ marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <span>Coach Sage AI</span>
-            <span style={{ fontSize: '0.75rem', background: 'var(--primary-glow)', color: 'var(--primary)', padding: '0.15rem 0.6rem', borderRadius: '12px', border: '1px solid var(--primary)' }}>
-              Agent 2.0 Live
+            <span style={{ fontSize: '0.75rem', background: 'rgba(20, 184, 166, 0.15)', color: '#14b8a6', padding: '0.2rem 0.6rem', borderRadius: '12px', border: '1px solid #14b8a6' }}>
+              <i className="fa-solid fa-bolt" style={{ marginRight: '0.3rem' }}></i>Groq AI Agent Active
             </span>
           </h3>
           <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>
@@ -386,8 +494,32 @@ Tell me more about what role or skill you want to target next (e.g. Full Stack, 
 
       </div>
 
-      {/* CHAT CONSOLE */}
-      <div className="glass-card" style={{ maxWidth: '950px', margin: '0 auto', padding: '2rem' }}>
+      {/* CHAT CONSOLE (SUPPORTS FULLSCREEN OVERLAY) */}
+      <div
+        className="glass-card"
+        style={isFullscreen ? {
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100vw',
+          height: '100vh',
+          zIndex: 99999,
+          margin: 0,
+          borderRadius: 0,
+          background: '#090d16',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '1.5rem 2.5rem',
+          border: 'none',
+          boxShadow: 'none'
+        } : {
+          maxWidth: '950px',
+          margin: '0 auto',
+          padding: '2rem'
+        }}
+      >
         
         {/* CONSOLE HEADER */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', paddingBottom: '0.8rem', borderBottom: '1px solid var(--border)' }}>
@@ -399,22 +531,69 @@ Tell me more about what role or skill you want to target next (e.g. Full Stack, 
               🧙‍♂️
             </div>
             <div>
-              <h4 style={{ margin: 0, fontSize: '1rem' }}>Sage Agent Console</h4>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Online & Ready</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h4 style={{ margin: 0, fontSize: '1rem' }}>Sage Engineering Mentor</h4>
+                <span style={{ fontSize: '0.7rem', background: 'rgba(20, 184, 166, 0.15)', color: '#14b8a6', border: '1px solid #14b8a6', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>
+                  Groq Live
+                </span>
+              </div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {isFullscreen ? 'Fullscreen Mode • Press Esc to exit' : 'Continuous Personal Memory Active'}
+              </span>
             </div>
           </div>
 
-          <span style={{
-            fontSize: '0.78rem', background: 'rgba(255,255,255,0.05)', padding: '0.3rem 0.8rem',
-            borderRadius: '20px', border: '1px solid var(--border)', color: 'var(--primary)'
-          }}>
-            {currentSentiment}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            {/* New Chat Button */}
+            <button
+              className="btn btn-sm btn-primary"
+              style={{ fontSize: '0.78rem', padding: '0.35rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
+              onClick={handleNewChat}
+              title="Start a new conversation with Sage"
+            >
+              <i className="fa-solid fa-plus"></i>
+              New Chat
+            </button>
+
+            {/* Memory Profile Button */}
+            <button
+              className="btn btn-sm btn-glass"
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.7rem', color: memoryNotes.length > 0 ? '#14b8a6' : 'var(--text-muted)' }}
+              onClick={() => setShowMemoryModal(true)}
+              title="View what Sage remembers about you"
+            >
+              <i className="fa-solid fa-brain" style={{ marginRight: '0.3rem' }}></i>
+              Memory ({memoryNotes.length})
+            </button>
+
+            {/* Clear History Button */}
+            <button
+              className="btn btn-sm btn-glass"
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', color: 'var(--text-muted)' }}
+              onClick={handleClearChat}
+              title="Clear conversation"
+            >
+              <i className="fa-solid fa-trash"></i>
+            </button>
+
+            {/* Fullscreen Toggle Button */}
+            <button
+              className="btn btn-sm btn-glass"
+              style={{ fontSize: '0.85rem', padding: '0.3rem 0.7rem', borderColor: isFullscreen ? 'var(--primary)' : 'var(--border)', color: isFullscreen ? 'var(--primary)' : 'white' }}
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              title={isFullscreen ? "Exit Fullscreen (Esc)" : "Expand to Fullscreen"}
+            >
+              <i className={isFullscreen ? "fa-solid fa-compress" : "fa-solid fa-expand"}></i>
+              <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem' }}>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+            </button>
+          </div>
         </div>
 
         {/* MESSAGES VIEW */}
         <div style={{
-          height: '380px', overflowY: 'auto', background: 'rgba(0,0,0,0.25)',
+          flex: isFullscreen ? 1 : 'none',
+          height: isFullscreen ? 'auto' : '400px',
+          overflowY: 'auto', background: 'rgba(0,0,0,0.25)',
           padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border)',
           display: 'flex', flexDirection: 'column', gap: '1.2rem', marginBottom: '1.2rem'
         }}>
@@ -523,6 +702,60 @@ Tell me more about what role or skill you want to target next (e.g. Full Stack, 
         </form>
 
       </div>
+
+      {/* SAGE MEMORY PROFILE MODAL */}
+      {showMemoryModal && (
+        <div className="modal-backdrop active" onClick={() => setShowMemoryModal(false)} style={{ display: 'flex', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100000, alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+          <div className="glass-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', width: '100%', maxHeight: '85vh', overflowY: 'auto', padding: '2rem', borderTop: '4px solid #14b8a6' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.2rem' }}>
+                <i className="fa-solid fa-brain" style={{ color: '#14b8a6' }}></i>
+                <span>Sage Memory Profile</span>
+              </h3>
+              <button className="btn btn-sm btn-glass" onClick={() => setShowMemoryModal(false)}>✕</button>
+            </div>
+
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginBottom: '1.2rem', lineHeight: '1.5' }}>
+              Sage keeps continuous memory across sessions to tailor your career coaching, roadmap advice, and interview recommendations.
+            </p>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '1.2rem' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Candidate Identity</div>
+              <strong style={{ color: 'var(--primary)', fontSize: '1.1rem' }}>{user?.name || 'Talent'}</strong>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', marginTop: '0.3rem' }}>
+                {user?.university ? `🎓 ${user.university}` : '🎓 College not specified'} • TQ Score: {calculateTQ()}/1000
+              </div>
+            </div>
+
+            <h4 style={{ fontSize: '0.95rem', color: 'var(--secondary)', marginBottom: '0.6rem' }}>
+              Knowledge Notes Accumulated:
+            </h4>
+            {memoryNotes.length === 0 ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                No specific notes recorded yet. As you chat about your target companies, tech stacks, or study hurdles, Sage automatically remembers them!
+              </p>
+            ) : (
+              <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
+                {memoryNotes.map((note, idx) => (
+                  <li key={idx} style={{ color: 'var(--text-main)', lineHeight: '1.5' }}>
+                    {note}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <button className="btn btn-sm btn-error" onClick={() => { handleClearChat(); setShowMemoryModal(false); }}>
+                <i className="fa-solid fa-trash"></i> Reset Chat & Memory
+              </button>
+              <button className="btn btn-primary" onClick={() => setShowMemoryModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

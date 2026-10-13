@@ -20,6 +20,19 @@ export default function Results({ onSwitchView }) {
 
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
+  const [lastSyncedTime, setLastSyncedTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+  // Helper for relative time
+  const getRelativeTime = (timestamp) => {
+    if (!timestamp) return 'Recently';
+    const now = Date.now();
+    const past = new Date(timestamp).getTime();
+    const diffSec = Math.floor((now - past) / 1000);
+    if (diffSec < 60) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
+  };
 
   // Fetch results logs
   const loadResultsData = async () => {
@@ -29,12 +42,13 @@ export default function Results({ onSwitchView }) {
       const data = await res.json();
 
       if (data.success) {
-        setMockTests(data.mockTests);
-        setVerifications(data.verifications);
-        setInterviews(data.interviews);
+        setMockTests(data.mockTests || []);
+        setVerifications(data.verifications || []);
+        setInterviews(data.interviews || []);
+        setLastSyncedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         
         // Render Chart.js line graph
-        renderAnalyticsChart(data.mockTests, data.interviews);
+        renderAnalyticsChart(data.mockTests || [], data.interviews || []);
       }
     } catch (err) {
       console.error('Error fetching results:', err);
@@ -44,7 +58,21 @@ export default function Results({ onSwitchView }) {
 
   useEffect(() => {
     loadResultsData();
+
+    // Real-time update listeners: whenever assessment submits or window regains focus
+    const handleResultsUpdate = () => {
+      loadResultsData();
+    };
+    window.addEventListener('earlyedge_results_updated', handleResultsUpdate);
+    window.addEventListener('focus', handleResultsUpdate);
+
+    // Auto-poll every 12 seconds while on page for real-time live sync
+    const interval = setInterval(loadResultsData, 12000);
+
     return () => {
+      window.removeEventListener('earlyedge_results_updated', handleResultsUpdate);
+      window.removeEventListener('focus', handleResultsUpdate);
+      clearInterval(interval);
       if (chartInstanceRef.current) {
         chartInstanceRef.current.destroy();
       }
@@ -56,54 +84,68 @@ export default function Results({ onSwitchView }) {
     const ctx = chartRef.current;
     if (!ctx) return;
 
-    // Purge existing chart instance before rebuilding
     if (chartInstanceRef.current) {
       chartInstanceRef.current.destroy();
     }
 
-    // Filter last 5 attempts, reverse to chronologically display oldest-to-newest
-    const mocksSubset = [...mockData].slice(0, 5).reverse();
-    const interviewsSubset = [...interviewData].slice(0, 5).reverse();
+    // Filter last 7 attempts, reverse to chronologically display oldest-to-newest
+    const mocksSubset = [...mockData].slice(0, 7).reverse();
+    const interviewsSubset = [...interviewData].slice(0, 7).reverse();
 
-    const dates = mocksSubset.map(m => new Date(m.timestamp).toLocaleDateString());
-    const mockScores = mocksSubset.map(m => m.accuracy);
-    const interviewScores = interviewsSubset.map(i => i.scores?.technical * 10 || 60);
+    const labels = mocksSubset.length > 0
+      ? mocksSubset.map((m, idx) => {
+          const d = new Date(m.timestamp);
+          const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dom = m.domain ? m.domain.replace('Engineering', 'Eng').replace('SDE / Full Stack', 'SDE') : 'Test';
+          return `${dom} (${dateStr} ${timeStr})`;
+        })
+      : ['Attempt 1', 'Attempt 2', 'Attempt 3', 'Attempt 4', 'Attempt 5'];
 
-    // Padding values for labels if lists are short
-    const labels = dates.length > 0 ? dates : ['Test 1', 'Test 2', 'Test 3', 'Test 4', 'Test 5'];
-    const mockPoints = mockScores.length > 0 ? mockScores : [65, 72, 80, 68, 85];
-    const interviewPoints = interviewScores.length > 0 ? interviewScores : [70, 75, 65, 80, 85];
+    const mockPoints = mocksSubset.length > 0 ? mocksSubset.map(m => m.accuracy) : [65, 72, 80, 68, 85];
+    const interviewPoints = interviewsSubset.length > 0 
+      ? interviewsSubset.map(i => i.scores?.technical ? Math.round(i.scores.technical * 10) : 60)
+      : [];
 
     // Read colors dynamically from CSS theme variables
     const themeStyles = getComputedStyle(document.documentElement);
-    const primaryColor = themeStyles.getPropertyValue('--primary').trim() || '#c99d63';
-    const secondaryColor = themeStyles.getPropertyValue('--secondary').trim() || '#5b89a6';
-    const textMuted = themeStyles.getPropertyValue('--text-muted').trim() || '#938f87';
-    const borderTheme = themeStyles.getPropertyValue('--border').trim() || 'rgba(255,255,255,0.05)';
+    const primaryColor = themeStyles.getPropertyValue('--primary').trim() || '#2563eb';
+    const secondaryColor = themeStyles.getPropertyValue('--secondary').trim() || '#0ea5e9';
+    const textMuted = themeStyles.getPropertyValue('--text-muted').trim() || '#94a3b8';
+    const borderTheme = themeStyles.getPropertyValue('--border').trim() || 'rgba(255,255,255,0.08)';
     const bodyFont = themeStyles.getPropertyValue('--font-body').trim() || 'sans-serif';
+
+    const datasets = [
+      {
+        label: 'Mock Test Accuracy (%)',
+        data: mockPoints,
+        borderColor: primaryColor,
+        backgroundColor: primaryColor + '1a',
+        fill: true,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 7
+      }
+    ];
+
+    if (interviewPoints.length > 0) {
+      datasets.push({
+        label: 'Voice Interview Rating (%)',
+        data: interviewPoints,
+        borderColor: secondaryColor,
+        backgroundColor: secondaryColor + '1a',
+        fill: true,
+        tension: 0.35,
+        pointRadius: 5,
+        pointHoverRadius: 7
+      });
+    }
 
     chartInstanceRef.current = new Chart(ctx, {
       type: 'line',
       data: {
         labels,
-        datasets: [
-          {
-            label: 'Mock Test Accuracy (%)',
-            data: mockPoints,
-            borderColor: primaryColor,
-            backgroundColor: primaryColor + '1a', // 10% transparency fill
-            fill: true,
-            tension: 0.4
-          },
-          {
-            label: 'Voice Interview Rating (%)',
-            data: interviewPoints,
-            borderColor: secondaryColor,
-            backgroundColor: secondaryColor + '1a', // 10% transparency fill
-            fill: true,
-            tension: 0.4
-          }
-        ]
+        datasets
       },
       options: {
         responsive: true,
@@ -119,7 +161,7 @@ export default function Results({ onSwitchView }) {
         },
         scales: {
           x: {
-            ticks: { color: textMuted, font: { family: bodyFont } },
+            ticks: { color: textMuted, font: { family: bodyFont, size: 11 } },
             grid: { color: borderTheme }
           },
           y: {
@@ -148,8 +190,28 @@ export default function Results({ onSwitchView }) {
 
   return (
     <div className="panel active">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <h3>Performance Analytics</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Performance Analytics</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginTop: '0.4rem' }}>
+            <span style={{ fontSize: '0.78rem', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 500 }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px rgba(16,185,129,0.6)' }}></span>
+              Live Sync Active
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Last synced: {lastSyncedTime}</span>
+            <button
+              className="btn btn-sm btn-glass"
+              style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}
+              onClick={loadResultsData}
+              disabled={loading}
+              title="Fetch latest results in real time"
+            >
+              <i className={`fa-solid fa-arrows-rotate ${loading ? 'fa-spin' : ''}`} style={{ marginRight: '0.3rem' }}></i>
+              Refresh
+            </button>
+          </div>
+        </div>
+
         <div style={{
           background: 'var(--bg-card)', padding: '0.4rem', borderRadius: '8px',
           border: '1px solid var(--border)', display: 'flex', gap: '0.4rem'
@@ -176,7 +238,7 @@ export default function Results({ onSwitchView }) {
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '2rem' }}>
-          <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1.5rem' }}></i>
+          <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: 'var(--primary)' }}></i>
         </div>
       ) : (
         <>
@@ -191,28 +253,47 @@ export default function Results({ onSwitchView }) {
                   <button className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => onSwitchView('tests')}>Attempt Mock Test</button>
                 </div>
               ) : (
-                mockTests.map(mock => (
-                  <div key={mock._id} className="history-item" onClick={() => handleOpenDetails('mock', mock)}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <div style={{
-                        width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary-glow)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '1rem'
-                      }}>
-                        <i className="fa-solid fa-code" style={{ color: 'var(--primary)' }}></i>
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 'bold' }}>{mock.type}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          Attempted {new Date(mock.timestamp).toLocaleDateString()}
+                mockTests.map((mock) => {
+                  const d = new Date(mock.timestamp);
+                  const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+                  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                  return (
+                    <div key={mock._id} className="history-item" onClick={() => handleOpenDetails('mock', mock)}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <div style={{
+                          width: '42px', height: '42px', borderRadius: '50%', background: 'var(--primary-glow)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '1rem',
+                          border: '1px solid var(--border)'
+                        }}>
+                          <i className="fa-solid fa-code" style={{ color: 'var(--primary)' }}></i>
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 'bold', fontSize: '0.98rem' }}>{mock.type}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem' }}>
+                            <span>Attempted {dateStr} at {timeStr}</span>
+                            <span style={{ background: 'rgba(255,255,255,0.06)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.72rem' }}>
+                              {getRelativeTime(mock.timestamp)}
+                            </span>
+                          </div>
+                          {(mock.partAScore !== undefined || mock.partBScore !== undefined || mock.partCScore !== undefined) && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-subtle)', marginTop: '0.35rem', display: 'flex', gap: '0.8rem' }}>
+                              <span>MCQ: <strong style={{ color: 'var(--text-muted)' }}>{mock.partAScore ?? 0}%</strong></span>
+                              <span>Subjective: <strong style={{ color: 'var(--text-muted)' }}>{mock.partBScore ?? 0}%</strong></span>
+                              <span>DSA: <strong style={{ color: 'var(--text-muted)' }}>{mock.partCScore ?? 0}%</strong></span>
+                            </div>
+                          )}
                         </div>
                       </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: mock.accuracy >= 70 ? 'var(--success)' : 'var(--primary)' }}>
+                          {mock.accuracy}%
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{mock.score}/{mock.total} Score</div>
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 'bold', color: 'var(--primary)' }}>{mock.accuracy}%</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{mock.score}/{mock.total} Score</div>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}

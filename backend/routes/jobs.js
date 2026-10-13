@@ -2,6 +2,11 @@ import express from 'express';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 import Resume from '../models/Resume.js';
+import User from '../models/User.js';
+import MockTest from '../models/MockTest.js';
+import VerificationTest from '../models/VerificationTest.js';
+import Interview from '../models/Interview.js';
+import PracticeSubmission from '../models/PracticeSubmission.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -64,6 +69,7 @@ router.get('/', protect, async (req, res) => {
         recruiterId: job.recruiterId,
         lockDuration: job.lockDuration,
         description: job.description,
+        salary: job.salary || '',
         views: job.views,
         createdAt: job.createdAt,
         isLocked,
@@ -82,7 +88,7 @@ router.get('/', protect, async (req, res) => {
 // @route   POST /api/jobs
 // @access  Private (Recruiter only)
 router.post('/', protect, async (req, res) => {
-  const { title, company, location, type, requirementsText, description } = req.body;
+  const { title, company, location, type, requirementsText, description, salary } = req.body;
 
   if (req.user.role !== 'recruiter') {
     return res.status(403).json({ success: false, message: 'Only recruiters can post jobs' });
@@ -121,6 +127,7 @@ router.post('/', protect, async (req, res) => {
       rawRequirements: requirementsText || '',
       recruiterId: req.user._id,
       description: description || 'New opportunity posted.',
+      salary: salary || '',
       lockDuration: 20
     });
 
@@ -135,7 +142,7 @@ router.post('/', protect, async (req, res) => {
 // @route   PUT /api/jobs/:id
 // @access  Private (Owner recruiter only)
 router.put('/:id', protect, async (req, res) => {
-  const { title, company, location, type, requirementsText, description } = req.body;
+  const { title, company, location, type, requirementsText, description, salary } = req.body;
 
   try {
     const job = await Job.findById(req.params.id);
@@ -176,6 +183,7 @@ router.put('/:id', protect, async (req, res) => {
     if (location !== undefined) job.location = location;
     if (type !== undefined) job.type = type;
     if (description !== undefined) job.description = description;
+    if (salary !== undefined) job.salary = salary;
 
     const updatedJob = await job.save();
 
@@ -321,18 +329,89 @@ router.get('/:id/applicants', protect, async (req, res) => {
     }
 
     const applications = await Application.find({ jobId: req.params.id }).sort({ appliedAt: -1 });
-
-    // Fetch user profiles for all applicants to supply complete details
     const studentIds = applications.map(app => app.studentId);
-    const User = (await import('../models/User.js')).default;
-    const students = await User.find({ _id: { $in: studentIds } }).select('-password');
+
+    // Fetch user profiles and all performance records in parallel
+    const [students, resumes, mockTests, verifications, interviews, practiceSubs] = await Promise.all([
+      User.find({ _id: { $in: studentIds } }).select('-password').lean(),
+      Resume.find({ userId: { $in: studentIds } }).select('userId fileName fileSize fileType uploadedAt').lean(),
+      MockTest.find({ userId: { $in: studentIds } }).select('userId accuracy score total domain partAScore partBScore partCScore timestamp').lean(),
+      VerificationTest.find({ userId: { $in: studentIds } }).select('userId passed certificateId score total timestamp').lean(),
+      Interview.find({ userId: { $in: studentIds } }).select('userId scores techStack timestamp duration').lean(),
+      PracticeSubmission.find({ userId: { $in: studentIds } }).select('userId category difficulty status attemptsCount').lean()
+    ]);
+
     const studentMap = {};
-    students.forEach(s => {
-      studentMap[s._id.toString()] = s;
+    students.forEach(s => { studentMap[s._id.toString()] = s; });
+
+    const resumeMap = {};
+    resumes.forEach(r => { resumeMap[r.userId.toString()] = r; });
+
+    const mockMap = {};
+    mockTests.forEach(m => {
+      const uid = m.userId.toString();
+      if (!mockMap[uid]) mockMap[uid] = [];
+      mockMap[uid].push(m);
+    });
+
+    const verifyMap = {};
+    verifications.forEach(v => {
+      const uid = v.userId.toString();
+      if (!verifyMap[uid]) verifyMap[uid] = v; // latest
+    });
+
+    const interviewMap = {};
+    interviews.forEach(i => {
+      const uid = i.userId.toString();
+      if (!interviewMap[uid]) interviewMap[uid] = [];
+      interviewMap[uid].push(i);
+    });
+
+    const practiceMap = {};
+    practiceSubs.forEach(p => {
+      const uid = p.userId.toString();
+      if (!practiceMap[uid]) practiceMap[uid] = [];
+      practiceMap[uid].push(p);
     });
 
     const richApplicants = applications.map(app => {
-      const student = studentMap[app.studentId.toString()] || {};
+      const uidStr = app.studentId.toString();
+      const student = studentMap[uidStr] || {};
+      const resume = resumeMap[uidStr];
+      const studentMocks = mockMap[uidStr] || [];
+      const studentInterviews = interviewMap[uidStr] || [];
+      const studentPractice = practiceMap[uidStr] || [];
+      const studentVerify = verifyMap[uidStr];
+
+      // Calculate solved count & tracks
+      let totalSolved = 0;
+      let dsaSolved = 0;
+      let sqlSolved = 0;
+      let oopsSolved = 0;
+      let totalAttempts = 0;
+      studentPractice.forEach(p => {
+        totalAttempts += (p.attemptsCount || 0);
+        if (p.status === 'Solved') {
+          totalSolved++;
+          if (p.category === 'sql') sqlSolved++;
+          else if (p.category === 'oops') oopsSolved++;
+          else dsaSolved++;
+        }
+      });
+
+      // Calculate Mock Test Stats
+      const avgMockAccuracy = studentMocks.length > 0
+        ? Math.round(studentMocks.reduce((acc, m) => acc + (m.accuracy || 0), 0) / studentMocks.length)
+        : 0;
+
+      // Calculate Interview Stats
+      const avgTech = studentInterviews.length > 0
+        ? Math.round(studentInterviews.reduce((acc, i) => acc + (i.scores?.technical || 0), 0) / studentInterviews.length)
+        : 0;
+      const avgComm = studentInterviews.length > 0
+        ? Math.round(studentInterviews.reduce((acc, i) => acc + (i.scores?.communication || 0), 0) / studentInterviews.length)
+        : 0;
+
       return {
         _id: app._id,
         jobId: app.jobId,
@@ -340,15 +419,38 @@ router.get('/:id/applicants', protect, async (req, res) => {
         studentName: app.studentName || student.name || 'Candidate',
         studentEmail: app.studentEmail || student.email || 'N/A',
         phoneNumber: student.phoneNumber || 'N/A',
+        photoURL: student.photoURL || null,
         university: student.university || 'Not Specified',
         stream: student.stream || 'N/A',
         branch: student.branch || 'N/A',
         isVerified: student.isVerified || false,
+        rank: student.rank || 1,
+        tqScore: student.tqScore || 500,
         squadId: student.squadId || 'None',
         status: app.status || 'pending',
         appliedAt: app.appliedAt,
-        hasResume: app.hasResume,
-        resumeFileName: app.resumeFileName || null
+        hasResume: !!resume || app.hasResume,
+        resumeFileName: resume?.fileName || app.resumeFileName || null,
+        practiceStats: {
+          totalSolved,
+          dsaSolved,
+          sqlSolved,
+          oopsSolved,
+          totalAttempts
+        },
+        mockTestStats: {
+          count: studentMocks.length,
+          avgAccuracy: avgMockAccuracy
+        },
+        interviewStats: {
+          count: studentInterviews.length,
+          avgTech,
+          avgComm
+        },
+        verificationStatus: {
+          isVerified: student.isVerified || false,
+          certificateId: studentVerify?.certificateId || null
+        }
       };
     });
 
@@ -359,14 +461,29 @@ router.get('/:id/applicants', protect, async (req, res) => {
   }
 });
 
-// @desc    Update application status (Keep/Remove shortlist/reject)
+// @desc    Get job details by ID
+// @route   GET /api/jobs/:id
+// @access  Private
+router.get('/:id', protect, async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+    res.json({ success: true, job });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Update application status (Accept / Shortlist / Reject / Pending)
 // @route   PUT /api/jobs/applications/:id
 // @access  Private (Recruiter only)
 router.put('/applications/:id', protect, async (req, res) => {
   const { status } = req.body;
 
-  if (!['shortlisted', 'accepted', 'rejected'].includes(status)) {
-    return res.status(400).json({ success: false, message: 'Invalid shortlist status' });
+  if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid application status' });
   }
 
   try {

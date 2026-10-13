@@ -25,6 +25,9 @@ export default function Profile() {
   const [resume, setResume] = useState(null);
   const [loadingResume, setLoadingResume] = useState(false);
   const [uploadingResume, setUploadingResume] = useState(false);
+  const [atsAnalysis, setAtsAnalysis] = useState(null);
+  const [analyzingResume, setAnalyzingResume] = useState(false);
+  const [atsModalOpen, setAtsModalOpen] = useState(false);
   
   // Candidate applications list
   const [applications, setApplications] = useState([]);
@@ -227,6 +230,39 @@ export default function Profile() {
     }
   };
 
+  // AI ATS Resume Review Agent
+  const handleAnalyzeResume = async () => {
+    if (!resume) return;
+    setAnalyzingResume(true);
+    try {
+      const res = await apiFetch('/api/ai/review-resume', {
+        method: 'POST',
+        body: JSON.stringify({
+          // Send the actual PDF base64 so backend can extract real text
+          resumeData: resume.resumeData || null,
+          candidateInfo: {
+            name: profileName || user.name,
+            university: profileUni || user.university,
+            stream: profileStream,
+            branch: profileBranch,
+            fileName: resume.fileName
+          }
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.analysis) {
+        setAtsAnalysis(data.analysis);
+        setAtsModalOpen(true);
+      } else {
+        alert(data.error || 'Failed to review resume with AI.');
+      }
+    } catch (err) {
+      console.error('Resume review error:', err);
+      alert('Error connecting to Groq AI Resume Reviewer.');
+    }
+    setAnalyzingResume(false);
+  };
+
   // Formats relative time logs
   const formatTimeAgo = (ts) => {
     const diff = Date.now() - new Date(ts).getTime();
@@ -375,7 +411,7 @@ export default function Profile() {
               onChange={handleResumeUpload}
             />
 
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => document.getElementById('resume-upload').click()} disabled={uploadingResume}>
                 <i className="fa-solid fa-upload"></i> {uploadingResume ? 'Uploading...' : 'Upload PDF'}
               </button>
@@ -384,6 +420,16 @@ export default function Profile() {
                   <button className="btn btn-glass" onClick={handleViewResume}>
                     <i className="fa-solid fa-eye"></i> View Resume
                   </button>
+                  {/* Show ATS button only if analysis hasn't been done yet */}
+                  {!atsAnalysis ? (
+                    <button className="btn btn-glass" style={{ borderColor: '#14b8a6', color: '#14b8a6' }} onClick={handleAnalyzeResume} disabled={analyzingResume}>
+                      <i className="fa-solid fa-wand-magic-sparkles"></i> {analyzingResume ? 'Analyzing...' : 'AI ATS Review'}
+                    </button>
+                  ) : (
+                    <button className="btn btn-glass" style={{ borderColor: '#14b8a6', color: '#14b8a6', opacity: 0.7 }} onClick={() => setAtsModalOpen(true)}>
+                      <i className="fa-solid fa-chart-bar"></i> ATS Score: {atsAnalysis.atsScore}%
+                    </button>
+                  )}
                   <button className="btn btn-error" onClick={handleDeleteResume}>
                     <i className="fa-solid fa-trash"></i> Delete
                   </button>
@@ -464,6 +510,75 @@ export default function Profile() {
         )}
 
       </div>
+
+      {/* AI ATS REVIEW MODAL */}
+      {atsModalOpen && atsAnalysis && (
+        <div className="modal-backdrop active" onClick={() => setAtsModalOpen(false)} style={{ display: 'flex', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+          <div className="glass-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem', borderTop: '4px solid #14b8a6', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <i className="fa-solid fa-wand-magic-sparkles" style={{ color: '#14b8a6' }}></i>
+                <span>Sage AI ATS Resume Analysis</span>
+              </h3>
+              <button className="btn btn-sm btn-glass" onClick={() => setAtsModalOpen(false)}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', background: 'rgba(20, 184, 166, 0.1)', padding: '1.2rem', borderRadius: '10px', marginBottom: '1.5rem', border: '1px solid #14b8a6' }}>
+              <div style={{ fontSize: '3rem', fontWeight: 'bold', color: '#14b8a6' }}>
+                {atsAnalysis.atsScore}%
+              </div>
+              <div>
+                <strong style={{ fontSize: '1.1rem' }}>Overall ATS Compatibility</strong>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  {atsAnalysis.summary}
+                </p>
+              </div>
+            </div>
+
+            {atsAnalysis.keyStrengths?.length > 0 && (
+              <div style={{ marginBottom: '1.2rem' }}>
+                <strong style={{ color: 'var(--success)', display: 'block', marginBottom: '0.4rem' }}>
+                  <i className="fa-solid fa-circle-check"></i> Key Strengths
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.9rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
+                  {atsAnalysis.keyStrengths.map((s, idx) => <li key={idx}>{s}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {atsAnalysis.areasToImprove?.length > 0 && (
+              <div style={{ marginBottom: '1.2rem' }}>
+                <strong style={{ color: 'var(--secondary)', display: 'block', marginBottom: '0.4rem' }}>
+                  <i className="fa-solid fa-triangle-exclamation"></i> Recommended Enhancements
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.9rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
+                  {atsAnalysis.areasToImprove.map((i, idx) => <li key={idx}>{i}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {atsAnalysis.missingKeywords?.length > 0 && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <strong style={{ color: 'var(--primary)', display: 'block', marginBottom: '0.5rem' }}>
+                  <i className="fa-solid fa-key"></i> Suggested Missing ATS Keywords
+                </strong>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {atsAnalysis.missingKeywords.map((kw, idx) => (
+                    <span key={idx} style={{ background: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)', padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ textAlign: 'right' }}>
+              <button className="btn btn-primary" onClick={() => setAtsModalOpen(false)}>Close Report</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

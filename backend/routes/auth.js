@@ -2,6 +2,11 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import MockTest from '../models/MockTest.js';
+import VerificationTest from '../models/VerificationTest.js';
+import Interview from '../models/Interview.js';
+import PracticeSubmission from '../models/PracticeSubmission.js';
+import Resume from '../models/Resume.js';
+import Application from '../models/Application.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -277,7 +282,108 @@ router.get('/student/:id', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Student profile not found' });
     }
 
-    const mockTests = await MockTest.find({ userId: student._id }).sort({ timestamp: -1 });
+    const [mockTests, verificationTests, interviews, practiceSubmissions, resume, applications] = await Promise.all([
+      MockTest.find({ userId: student._id }).sort({ timestamp: -1 }),
+      VerificationTest.find({ userId: student._id }).sort({ timestamp: -1 }),
+      Interview.find({ userId: student._id }).sort({ timestamp: -1 }),
+      PracticeSubmission.find({ userId: student._id }).sort({ updatedAt: -1 }),
+      Resume.findOne({ userId: student._id }),
+      Application.find({ studentId: student._id }).sort({ appliedAt: -1 })
+    ]);
+
+    // Calculate Practice / Question Solved statistics
+    let totalSolved = 0;
+    let easySolved = 0;
+    let mediumSolved = 0;
+    let hardSolved = 0;
+    let dsaSolved = 0;
+    let sqlSolved = 0;
+    let oopsSolved = 0;
+    let totalAttempts = 0;
+
+    const formattedSubmissions = practiceSubmissions.map(sub => {
+      totalAttempts += (sub.attemptsCount || 0);
+      if (sub.status === 'Solved') {
+        totalSolved++;
+        if (sub.difficulty === 'Easy') easySolved++;
+        else if (sub.difficulty === 'Hard') hardSolved++;
+        else mediumSolved++;
+
+        if (sub.category === 'sql') sqlSolved++;
+        else if (sub.category === 'oops') oopsSolved++;
+        else dsaSolved++;
+      }
+
+      return {
+        _id: sub._id,
+        problemId: sub.problemId,
+        problemNumber: sub.problemNumber,
+        title: sub.title,
+        category: sub.category,
+        difficulty: sub.difficulty,
+        topic: sub.topic,
+        status: sub.status,
+        acceptedCount: sub.acceptedCount || 0,
+        attemptsCount: sub.attemptsCount || 0,
+        firstSolvedAt: sub.firstSolvedAt,
+        lastSolvedAt: sub.lastSolvedAt,
+        lastAttemptAt: sub.lastAttemptAt,
+        lastLanguage: sub.lastLanguage,
+        lastCode: sub.lastCode,
+        history: sub.history || []
+      };
+    });
+
+    const practiceStats = {
+      totalSolved,
+      easySolved,
+      mediumSolved,
+      hardSolved,
+      dsaSolved,
+      sqlSolved,
+      oopsSolved,
+      totalAttempts,
+      acceptanceRate: totalAttempts > 0 ? Math.round((totalSolved / totalAttempts) * 100) : (totalSolved > 0 ? 100 : 0)
+    };
+
+    // Calculate Mock Tests statistics
+    const avgMockAccuracy = mockTests.length > 0
+      ? Math.round(mockTests.reduce((acc, t) => acc + (t.accuracy || 0), 0) / mockTests.length)
+      : 0;
+    const avgPartAScore = mockTests.length > 0
+      ? Math.round(mockTests.reduce((acc, t) => acc + (t.partAScore || 0), 0) / mockTests.length)
+      : 0;
+    const avgPartBScore = mockTests.length > 0
+      ? Math.round(mockTests.reduce((acc, t) => acc + (t.partBScore || 0), 0) / mockTests.length)
+      : 0;
+    const avgPartCScore = mockTests.length > 0
+      ? Math.round(mockTests.reduce((acc, t) => acc + (t.partCScore || 0), 0) / mockTests.length)
+      : 0;
+
+    const mockStats = {
+      totalTests: mockTests.length,
+      avgAccuracy: avgMockAccuracy,
+      avgPartAScore,
+      avgPartBScore,
+      avgPartCScore
+    };
+
+    // Calculate Interview statistics
+    const avgTechScore = interviews.length > 0
+      ? Math.round(interviews.reduce((acc, i) => acc + (i.scores?.technical || 0), 0) / interviews.length)
+      : 0;
+    const avgCommScore = interviews.length > 0
+      ? Math.round(interviews.reduce((acc, i) => acc + (i.scores?.communication || 0), 0) / interviews.length)
+      : 0;
+
+    const interviewStats = {
+      totalInterviews: interviews.length,
+      avgTechScore,
+      avgCommScore
+    };
+
+    // Latest verification test
+    const latestVerification = verificationTests.length > 0 ? verificationTests[0] : null;
 
     res.json({
       success: true,
@@ -296,10 +402,26 @@ router.get('/student/:id', protect, async (req, res) => {
         squadId: student.squadId,
         photoURL: student.photoURL,
         createdAt: student.createdAt,
-        mockTests: mockTests
+        resume: resume ? {
+          fileName: resume.fileName,
+          fileSize: resume.fileSize,
+          fileType: resume.fileType,
+          uploadedAt: resume.uploadedAt,
+          resumeData: resume.resumeData
+        } : null,
+        practiceStats,
+        practiceSubmissions: formattedSubmissions,
+        mockStats,
+        mockTests,
+        interviewStats,
+        interviews,
+        verificationTests,
+        latestVerification,
+        applications
       }
     });
   } catch (error) {
+    console.error('Fetch student profile details error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

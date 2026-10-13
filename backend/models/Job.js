@@ -41,6 +41,10 @@ const JobSchema = new mongoose.Schema({
     type: String,
     default: 'New opportunity posted.'
   },
+  salary: {
+    type: String,
+    default: ''
+  },
   views: {
     type: Number,
     default: 0

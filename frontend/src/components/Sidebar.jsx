@@ -11,10 +11,10 @@ export default function Sidebar({ currentView, onSwitchView, onLogout, mobileOpe
   return (
     <aside className={`sidebar ${mobileOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`} id="app-sidebar">
       {/* Brand Heading & Minimizer Toggle Button */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', flexDirection: collapsed ? 'column' : 'row', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: collapsed ? '0.8rem' : '0', marginBottom: '1.8rem' }}>
         <span onClick={() => onSwitchView('landing')} className="sidebar-brand" style={{ cursor: 'pointer', margin: 0, display: 'flex', alignItems: 'center' }}>
           {collapsed ? (
-            <img src={logoSrc} alt="EarlyEdge Logo" style={{ height: '26px', maxWidth: '30px', objectFit: 'contain' }} />
+            <img src={logoSrc} alt="EarlyEdge Logo" style={{ height: '28px', maxWidth: '32px', objectFit: 'contain' }} />
           ) : (
             <img src={logoSrc} alt="EarlyEdge Logo" style={{ height: '38px', maxHeight: '42px', objectFit: 'contain' }} />
           )}
@@ -23,11 +23,11 @@ export default function Sidebar({ currentView, onSwitchView, onLogout, mobileOpe
         <button
           onClick={onToggleCollapse}
           className="sidebar-toggle-btn desktop-only"
-          title={collapsed ? "Expand Sidebar" : "Minimize Sidebar"}
+          title={collapsed ? "Expand Sidebar (Ctrl+B)" : "Collapse Sidebar (Ctrl+B)"}
           style={{
-            background: 'rgba(255,255,255,0.06)',
+            background: 'rgba(255,255,255,0.08)',
             border: '1px solid var(--border)',
-            color: 'var(--text-muted)',
+            color: 'var(--text-main)',
             borderRadius: '6px',
             width: '32px',
             height: '32px',
@@ -73,6 +73,15 @@ export default function Sidebar({ currentView, onSwitchView, onLogout, mobileOpe
               style={{ justifyContent: collapsed ? 'center' : 'flex-start' }}
             >
               <i className="fa-solid fa-code"></i> {!collapsed && <span>Skill Tests</span>}
+            </button>
+
+            <button
+              onClick={() => onSwitchView('practice')}
+              className={`nav-item ${currentView === 'practice' ? 'active' : ''}`}
+              title={collapsed ? "Code Arena (DSA, SQL, OOPS)" : ""}
+              style={{ justifyContent: collapsed ? 'center' : 'flex-start' }}
+            >
+              <i className="fa-solid fa-laptop-code"></i> {!collapsed && <span>Code Arena</span>}
             </button>
 
             <button
